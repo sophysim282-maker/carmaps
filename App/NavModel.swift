@@ -93,6 +93,9 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         manager.delegate = self
         manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         manager.activityType = .automotiveNavigation
+        manager.pausesLocationUpdatesAutomatically = false
+        manager.allowsBackgroundLocationUpdates = true      // keeps navigating when the iPhone is locked
+        manager.showsBackgroundLocationIndicator = true
         manager.requestWhenInUseAuthorization()
         manager.startUpdatingLocation()
         manager.startUpdatingHeading()

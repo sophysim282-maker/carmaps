@@ -10,7 +10,7 @@ packages:
 settings:
   base:
     CODE_SIGN_STYLE: Automatic
-    MARKETING_VERSION: "2.4"
+    MARKETING_VERSION: "2.5"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
 targets:
@@ -36,6 +36,7 @@ targets:
         NSLocalNetworkUsageDescription: Car Maps sends the map to your car over the hotspot Wi-Fi.
         NSMicrophoneUsageDescription: Car Maps uses the microphone for voice search.
         NSSpeechRecognitionUsageDescription: Car Maps turns your voice into a search.
+        UIBackgroundModes: [location, audio]
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft

@@ -80,6 +80,8 @@ h2{font-size:30px}
 .round{width:72px;height:72px;border-radius:36px}
 #recenter{gap:10px}
 #panel{width:470px}
+#bgArrow{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);display:none;filter:drop-shadow(0 2px 4px rgba(0,0,0,.4));pointer-events:none}
+#bgNote{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);padding:10px 18px;border-radius:16px;font-size:17px;display:none}
 #side{position:fixed;top:100px;right:110px;width:440px;display:flex;flex-direction:column;gap:12px}
 .dots{display:flex;flex-direction:column;align-items:center;gap:4px;padding:4px 0}
 .dots i{display:block;width:4px;height:4px;border-radius:2px;background:var(--muted)}
@@ -94,6 +96,9 @@ h2{font-size:30px}
 </style></head><body>
 <img id="map" alt="" draggable="false">
 <div id="msg">Open Car Maps on your iPhone…</div>
+<div id="bgArrow"><svg width="64" height="64" viewBox="0 0 48 48"><path d="M24 4L41 42L24 33L7 42Z" fill="#1a73e8"
+ stroke="#fff" stroke-width="4" stroke-linejoin="round"/></svg></div>
+<div id="bgNote" class="card">iPhone locked · simple map</div>
 <div id="panel"></div>
 <div id="side"></div>
 <div id="turn"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"
@@ -359,6 +364,8 @@ async function poll(){
     if(S.then) $('thenIcon').innerHTML=ICON[S.then]||ST;
     $('wx').style.display=S.weather?'block':'none'; $('wx').textContent='☀ '+(S.weather||'');
     $('layer').classList.toggle('on',S.mapType==='satellite');
+    $('bgArrow').style.display=S.bg?'block':'none'; $('bgNote').style.display=(S.bg&&!on)?'block':'none';
+    $('bgArrow').firstElementChild.style.transform='rotate('+(S.heading||0)+'deg)';
     $('status').style.display=(S.status&&S.screen!=='directions')?'block':'none'; $('status').textContent=S.status||'';
     renderPanel();
     if(lastSpoken<0) lastSpoken=S.spokenId;

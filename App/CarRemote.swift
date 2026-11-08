@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// The Tesla screen can control the app: this builds what the car shows and runs what the car taps.
 extension NavModel {
@@ -38,6 +39,7 @@ extension NavModel {
             "mode": mode,
             "stop": stop?.name ?? "",
             "heading": carBearing,
+            "bg": UIApplication.shared.applicationState != .active,
             "headingUp": MapController.shared.headingUp,
             "driveResults": driveResults.map { ["name": $0.name, "address": $0.address] },
             "modes": modeSeconds.mapValues { $0 < 0 ? "—" : NavModel.timeText($0) },

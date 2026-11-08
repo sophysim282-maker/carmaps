@@ -2,6 +2,7 @@ import UIKit
 import Network
 import ReplayKit
 import CoreImage
+import GoogleMaps
 
 /// Sends the app's own map (pictures) + the directions (text) to the Tesla browser over local Wi-Fi.
 final class CarLink: ObservableObject {
@@ -12,6 +13,9 @@ final class CarLink: ObservableObject {
     private var useInAppCapture = false
     private let encodeQueue = DispatchQueue(label: "carmaps.encode")
     private let ciContext = CIContext()
+    weak var nav: NavModel?
+    private var lastStatic = Date.distantPast
+    private var staticBusy = false
 
     func start(state: @escaping () -> [String: Any]) {
         server.start()
@@ -20,7 +24,12 @@ final class CarLink: ObservableObject {
             let connected = self.server.hasClients
             if connected != self.carConnected { self.carConnected = connected }
             self.server.setState(state())
-            if connected && !self.useInAppCapture { self.snapshot() }
+            guard connected else { return }
+            if UIApplication.shared.applicationState == .active {
+                if !self.useInAppCapture { self.snapshot() }
+            } else {
+                self.backgroundMap()
+            }
         }
     }
 
@@ -45,6 +54,35 @@ final class CarLink: ObservableObject {
         encodeQueue.async { [server] in
             if let jpeg = image.jpegData(compressionQuality: 0.6) { server.broadcast(jpeg) }
         }
+    }
+
+    /// iPhone locked / app in background: the live map can't be drawn, so send a simple
+    /// Google map picture (Maps Static API) every 4 seconds instead.
+    private func backgroundMap() {
+        guard let nav, !staticBusy, Date().timeIntervalSince(lastStatic) > 4,
+              let c = nav.carCoordinate ?? nav.location?.coordinate else { return }
+        lastStatic = Date()
+        staticBusy = true
+        let s = Settings.shared
+        var url = "https://maps.googleapis.com/maps/api/staticmap?size=640x400&scale=2&format=jpg-baseline"
+        url += "&center=\(c.latitude),\(c.longitude)&zoom=\(nav.guiding ? 16 : 15)"
+        url += "&maptype=" + (s.mapType == "satellite" ? "hybrid" : "roadmap")
+        if let p = nav.path {
+            let enc = p.encodedPath()
+            if enc.count < 6000, let e = enc.addingPercentEncoding(withAllowedCharacters: .alphanumerics) {
+                url += "&path=weight:8%7Ccolor:0x1a73e8ff%7Cenc:" + e
+            }
+        }
+        if let d = nav.selected { url += "&markers=color:red%7C\(d.lat),\(d.lng)" }
+        url += "&language=\(s.language)&key=\(nav.api.key)"
+        guard let u = URL(string: url) else { staticBusy = false; return }
+        var req = URLRequest(url: u)
+        req.setValue(Bundle.main.bundleIdentifier, forHTTPHeaderField: "X-Ios-Bundle-Identifier")
+        URLSession.shared.dataTask(with: req) { [weak self] data, resp, _ in
+            DispatchQueue.main.async { self?.staticBusy = false }
+            guard let self, let data, (resp as? HTTPURLResponse)?.statusCode == 200 else { return }
+            self.server.broadcast(data)
+        }.resume()
     }
 
     /// Backup mode: Apple's in-app capture. Captures ONLY this app, never other apps.
