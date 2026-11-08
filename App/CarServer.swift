@@ -10,6 +10,7 @@ final class CarServer {
     private var streams: [ObjectIdentifier: NWConnection] = [:]
     private var busy: Set<ObjectIdentifier> = []
     private var stateJSON = Data("{}".utf8)
+    private var bgMap = Data()
     /// Commands from the Tesla screen (called on the main thread).
     var onCommand: ((String, [String: String]) -> Void)?
 
@@ -42,6 +43,11 @@ final class CarServer {
     func setState(_ dict: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: dict) else { return }
         queue.async { self.stateJSON = data }
+    }
+
+    /// Map picture used while the iPhone is locked (the Tesla page moves and turns it itself).
+    func setBackgroundMap(_ jpeg: Data) {
+        queue.async { self.bgMap = jpeg }
     }
 
     func broadcast(_ jpeg: Data) {
@@ -84,6 +90,8 @@ final class CarServer {
                 let action = params["a"] ?? ""
                 DispatchQueue.main.async { self.onCommand?(action, params) }
                 self.reply(conn, type: "application/json", body: Data("{\"ok\":true}".utf8))
+            } else if path.hasPrefix("/bgmap") {
+                self.reply(conn, type: "image/jpeg", body: self.bgMap)
             } else if path.hasPrefix("/state") {
                 self.reply(conn, type: "application/json", body: self.stateJSON)
             } else {

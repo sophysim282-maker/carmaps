@@ -39,6 +39,8 @@ extension NavModel {
             "mode": mode,
             "stop": stop?.name ?? "",
             "heading": carBearing,
+            "lat": (carCoordinate ?? location?.coordinate)?.latitude ?? 0,
+            "lng": (carCoordinate ?? location?.coordinate)?.longitude ?? 0,
             "bg": UIApplication.shared.applicationState != .active,
             "headingUp": MapController.shared.headingUp,
             "driveResults": driveResults.map { ["name": $0.name, "address": $0.address] },

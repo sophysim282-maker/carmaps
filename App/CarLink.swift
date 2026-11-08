@@ -1,4 +1,5 @@
 import UIKit
+import CoreLocation
 import Network
 import ReplayKit
 import CoreImage
@@ -23,7 +24,9 @@ final class CarLink: ObservableObject {
             guard let self else { return }
             let connected = self.server.hasClients
             if connected != self.carConnected { self.carConnected = connected }
-            self.server.setState(state())
+            var st = state()
+            st.merge(self.bgMeta) { a, _ in a }
+            self.server.setState(st)
             guard connected else { return }
             if UIApplication.shared.applicationState == .active {
                 if !self.useInAppCapture { self.snapshot() }
@@ -56,21 +59,45 @@ final class CarLink: ObservableObject {
         }
     }
 
-    /// iPhone locked / app in background: the live map can't be drawn, so send a simple
-    /// Google map picture (Maps Static API) every 4 seconds instead.
+    /// iPhone locked / app in background: the live map can't be drawn. Get one big Google map picture
+    /// (Maps Static API) around the car; the Tesla page slides, turns and tilts it with the GPS.
+    /// A new picture is fetched only after moving ~250 m, a new route, or a setting change.
+    private var bgCenter: CLLocation?
+    private var bgKey = ""
+    private var bgId = 0
+    private var bgMeta: [String: Any] = [:]
+
     private func backgroundMap() {
-        guard let nav, !staticBusy, Date().timeIntervalSince(lastStatic) > 4,
+        guard let nav, !staticBusy, Date().timeIntervalSince(lastStatic) > 2,
               let c = nav.carCoordinate ?? nav.location?.coordinate else { return }
+        let s = Settings.shared
+        let zoom = 16
+        let key = "\(nav.routesVersion)|\(s.mapType)|\(s.isNight)|\(zoom)|\(nav.selected?.id ?? "")"
+        let here = CLLocation(latitude: c.latitude, longitude: c.longitude)
+        let moved = bgCenter.map { here.distance(from: $0) } ?? .infinity
+        guard moved > 250 || key != bgKey || Date().timeIntervalSince(lastStatic) > 120 else { return }
         lastStatic = Date()
         staticBusy = true
-        let s = Settings.shared
-        var url = "https://maps.googleapis.com/maps/api/staticmap?size=640x400&scale=2&format=jpg-baseline"
-        url += "&center=\(c.latitude),\(c.longitude)&zoom=\(nav.guiding ? 16 : 15)"
+
+        // While driving, center the picture ~300 m ahead so the road in front is covered.
+        var center = c
+        if nav.guiding {
+            let h = nav.carBearing * .pi / 180
+            center = CLLocationCoordinate2D(latitude: c.latitude + 300 * cos(h) / 111_320,
+                                            longitude: c.longitude + 300 * sin(h) / (111_320 * cos(c.latitude * .pi / 180)))
+        }
+        var url = "https://maps.googleapis.com/maps/api/staticmap?size=640x640&scale=2&format=jpg-baseline"
+        url += "&center=\(center.latitude),\(center.longitude)&zoom=\(zoom)"
         url += "&maptype=" + (s.mapType == "satellite" ? "hybrid" : "roadmap")
+        if s.isNight && s.mapType != "satellite" {
+            url += "&style=element:geometry%7Ccolor:0x242f3e&style=element:labels.text.stroke%7Ccolor:0x242f3e"
+            url += "&style=element:labels.text.fill%7Ccolor:0x9ca5b3&style=feature:road%7Celement:geometry%7Ccolor:0x38414e"
+            url += "&style=feature:road.highway%7Celement:geometry%7Ccolor:0x746855&style=feature:water%7Ccolor:0x17263c"
+        }
         if let p = nav.path {
             let enc = p.encodedPath()
             if enc.count < 6000, let e = enc.addingPercentEncoding(withAllowedCharacters: .alphanumerics) {
-                url += "&path=weight:8%7Ccolor:0x1a73e8ff%7Cenc:" + e
+                url += "&path=weight:10%7Ccolor:0x1a73e8ff%7Cenc:" + e
             }
         }
         if let d = nav.selected { url += "&markers=color:red%7C\(d.lat),\(d.lng)" }
@@ -79,9 +106,16 @@ final class CarLink: ObservableObject {
         var req = URLRequest(url: u)
         req.setValue(Bundle.main.bundleIdentifier, forHTTPHeaderField: "X-Ios-Bundle-Identifier")
         URLSession.shared.dataTask(with: req) { [weak self] data, resp, _ in
-            DispatchQueue.main.async { self?.staticBusy = false }
-            guard let self, let data, (resp as? HTTPURLResponse)?.statusCode == 200 else { return }
-            self.server.broadcast(data)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.staticBusy = false
+                guard let data, (resp as? HTTPURLResponse)?.statusCode == 200 else { return }
+                self.server.setBackgroundMap(data)
+                self.bgCenter = here
+                self.bgKey = key
+                self.bgId += 1
+                self.bgMeta = ["bgId": self.bgId, "bgLat": center.latitude, "bgLng": center.longitude, "bgZoom": zoom]
+            }
         }.resume()
     }
 
