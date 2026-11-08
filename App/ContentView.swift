@@ -64,6 +64,8 @@ struct ContentView: View {
     @State private var searchOpen = false
     @State private var voiceStart = false
     @State private var forDirections = false
+    @State private var forStop = false
+    @State private var showYou = false
     @State private var showSettings = false
     @State private var showLayers = false
     @State private var alertText: String?
@@ -83,14 +85,14 @@ struct ContentView: View {
             if nav.guiding {
                 DriveOverlay(nav: nav, settings: settings, maps: maps)
             } else if nav.showingDirections, let p = nav.selected {
-                DirectionsOverlay(nav: nav, settings: settings, place: p)
+                DirectionsOverlay(nav: nav, settings: settings, place: p, addStop: { openSearch(stop: true) })
             } else {
                 homeOverlay
             }
 
             if searchOpen {
                 SearchScreen(nav: nav, settings: settings, voice: voice, isOpen: $searchOpen,
-                             forDirections: $forDirections, alertText: $alertText,
+                             forDirections: $forDirections, forStop: $forStop, alertText: $alertText,
                              startWithVoice: voiceStart, openSettings: { showSettings = true })
                     .transition(.move(edge: .bottom))
             }
@@ -98,6 +100,7 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.2), value: searchOpen)
         .preferredColorScheme(settings.isNight ? .dark : .light)
         .onAppear(perform: startCar)
+        .sheet(isPresented: $showYou) { YouSheet(nav: nav, settings: settings) }
         .sheet(isPresented: $showSettings) { SettingsView(settings: settings, car: car, vpn: vpn) }
         .sheet(isPresented: $showLayers) {
             LayersSheet(settings: settings).presentationDetents([.height(300)])
@@ -107,9 +110,10 @@ struct ContentView: View {
         }
     }
 
-    private func openSearch(voice: Bool = false, directions: Bool = false) {
+    private func openSearch(voice: Bool = false, directions: Bool = false, stop: Bool = false) {
         voiceStart = voice
         forDirections = directions
+        forStop = stop
         searchOpen = true
     }
 
@@ -170,7 +174,34 @@ struct ContentView: View {
                 PlaceCard(nav: nav, settings: settings, place: p)
             } else if !nav.results.isEmpty {
                 ResultsSheet(nav: nav)
+            } else {
+                tabBar
             }
+        }
+    }
+
+    private var tabBar: some View {
+        HStack(spacing: 0) {
+            tab("mappin.and.ellipse", "Explore", selected: true) {}
+            tab("bookmark", "You", selected: false) { showYou = true }
+            tab("gearshape", "Settings", selected: false) { showSettings = true }
+        }
+        .padding(.top, 10)
+        .padding(.bottom, 2)
+        .background(Color(.systemBackground).shadow(color: .black.opacity(0.08), radius: 4, y: -2).ignoresSafeArea(edges: .bottom))
+    }
+
+    private func tab(_ icon: String, _ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 21, weight: .medium))
+                    .frame(width: 64, height: 32)
+                    .background(Capsule().fill(selected ? Theme.tealLight : Color.clear))
+                Text(title).font(.caption.weight(.semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .foregroundColor(selected ? Theme.teal : .secondary)
         }
     }
 

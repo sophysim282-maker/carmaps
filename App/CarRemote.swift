@@ -36,6 +36,10 @@ extension NavModel {
             "results": results.map { ["name": $0.name, "address": $0.address] },
             "suggestions": suggestions.map { ["id": $0.id, "main": $0.main, "secondary": $0.secondary] },
             "mode": mode,
+            "stop": stop?.name ?? "",
+            "heading": carBearing,
+            "headingUp": MapController.shared.headingUp,
+            "driveResults": driveResults.map { ["name": $0.name, "address": $0.address] },
             "modes": modeSeconds.mapValues { $0 < 0 ? "—" : NavModel.timeText($0) },
             "routes": routes.enumerated().map { i, r in
                 ["time": NavModel.timeText(r.seconds), "arrive": NavModel.clock(r.seconds),
@@ -87,6 +91,12 @@ extension NavModel {
         case "pan": maps.pan(fx: fx, fy: fy, guiding: guiding)
         case "pin": if !guiding { dropPin(maps.carCoordinate(fx: fx, fy: fy)) }
         case "layer": s.mapType = s.mapType == "satellite" ? "normal" : "satellite"
+        case "stopsuggest": if let sg = suggestions.first(where: { $0.id == p["id"] }) { chooseStop(sg) }
+        case "removestop": removeStop()
+        case "compass": maps.headingUp.toggle()
+        case "navsearch": searchWhileDriving(p["q"] ?? "")
+        case "go": if driveResults.indices.contains(i) { goNow(driveResults[i]) }
+        case "clearnear": driveResults = []; maps.recenter(self)
         default: break
         }
     }

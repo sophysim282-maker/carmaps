@@ -55,6 +55,10 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var routes: [RouteOption] = []
     @Published var routeIndex = 0
     @Published var routesVersion = 0
+    @Published var stop: Place?
+    /// Search results shown while driving (tap one to go there instead).
+    @Published var driveResults: [Place] = []
+    private var pendingStart = false
 
     @Published var guiding = false
     @Published var stepIndex = 0
@@ -207,7 +211,7 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         }
     }
 
-    func choose(_ s: Suggestion, then: ((Place) -> Void)? = nil) {
+    func choose(_ s: Suggestion, selectIt: Bool = true, then: ((Place) -> Void)? = nil) {
         autoWork?.cancel()
         suggestions = []
         status = "Loading…"
@@ -224,7 +228,7 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
             self.status = ""
             let p = Place(name: name, address: json?["formattedAddress"] as? String ?? s.secondary,
                           lat: lat, lng: lng, placeId: s.id)
-            self.select(p)
+            if selectIt { self.select(p) }
             then?(p)
         }
     }
@@ -249,6 +253,8 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         selected = place
         info = nil
         results = []
+        driveResults = []
+        stop = nil
         showingDirections = false
         routes = []
         routeIndex = 0
@@ -295,6 +301,56 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         return f.date(from: s)
     }
 
+    // MARK: - Stops and searching while driving
+
+    func setStop(_ p: Place) {
+        stop = p
+        routes = []
+        routesVersion += 1
+        fetchRoutes()
+        fetchModeTimes()
+    }
+
+    func chooseStop(_ s: Suggestion) {
+        choose(s, selectIt: false) { [weak self] p in self?.setStop(p) }
+    }
+
+    func removeStop() {
+        stop = nil
+        routes = []
+        routesVersion += 1
+        fetchRoutes()
+        fetchModeTimes()
+    }
+
+    /// Search near you without stopping navigation (gas, coffee…).
+    func searchWhileDriving(_ q: String) {
+        var body: [String: Any] = ["textQuery": q, "pageSize": 8, "languageCode": settings.language]
+        if let b = bias() { body["locationBias"] = b }
+        status = "Searching…"
+        api.call("https://places.googleapis.com/v1/places:searchText", body: body,
+                 fields: "places.id,places.displayName,places.formattedAddress,places.location") { [weak self] json, err in
+            guard let self else { return }
+            self.status = err ?? ""
+            let places = (json?["places"] as? [[String: Any]]) ?? []
+            self.driveResults = places.compactMap { p in
+                guard let loc = p["location"] as? [String: Any],
+                      let lat = loc["latitude"] as? Double, let lng = loc["longitude"] as? Double else { return nil }
+                let name = (p["displayName"] as? [String: Any])?["text"] as? String ?? "Place"
+                return Place(name: name, address: p["formattedAddress"] as? String ?? "", lat: lat, lng: lng,
+                             placeId: p["id"] as? String)
+            }
+            if self.driveResults.isEmpty && err == nil { self.status = "Nothing found nearby" }
+        }
+    }
+
+    /// Drive to this place now (from results found while driving).
+    func goNow(_ p: Place) {
+        mode = "DRIVE"
+        select(p)
+        pendingStart = true
+    }
+
     // MARK: - Routes
 
     func openDirections() {
@@ -330,8 +386,10 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     private func routeBody(_ m: String, alternatives: Bool, from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> [String: Any] {
         var b: [String: Any] = [
             "origin": ll(from), "destination": ll(to), "travelMode": m,
-            "languageCode": settings.language, "units": "METRIC", "computeAlternativeRoutes": alternatives,
+            "languageCode": settings.language, "units": "METRIC",
+            "computeAlternativeRoutes": alternatives && stop == nil,
         ]
+        if let st = stop, m != "TRANSIT" { b["intermediates"] = [ll(st.coordinate)] }
         if m == "DRIVE" || m == "TWO_WHEELER" {
             b["routingPreference"] = "TRAFFIC_AWARE"
             b["routeModifiers"] = ["avoidTolls": settings.avoidTolls, "avoidHighways": settings.avoidHighways,
@@ -345,7 +403,7 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     /// Times for Car / Motorbike / Walk tabs.
     private func fetchModeTimes() {
         guard let dest = selected, let here = location else { return }
-        for m in ["DRIVE", "TWO_WHEELER", "WALK"] {
+        for m in ["DRIVE", "TWO_WHEELER", "TRANSIT", "WALK"] {
             api.call("https://routes.googleapis.com/directions/v2:computeRoutes",
                      body: routeBody(m, alternatives: false, from: here.coordinate, to: dest.coordinate),
                      fields: "routes.duration") { [weak self] json, _ in
@@ -402,6 +460,11 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
             self.modeSeconds[wantMode] = first.seconds
             self.routesVersion += 1
             self.status = ""
+            if self.pendingStart {
+                self.pendingStart = false
+                self.startGuidance()
+                return
+            }
             if self.guiding {
                 self.stepIndex = 0
                 self.saidFar = false

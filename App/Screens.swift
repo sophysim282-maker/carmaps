@@ -86,6 +86,7 @@ struct PlaceCard: View {
                     } label: { PillLabel(title: "Call", icon: "phone.fill", filled: false) }
                 }
                 SaveMenu(settings: settings, place: place)
+                ShareLink(item: shareURL) { PillLabel(title: "Share", icon: "square.and.arrow.up", filled: false) }
             }
         }
     }
@@ -201,6 +202,7 @@ struct SearchScreen: View {
     @ObservedObject var voice: VoiceSearch
     @Binding var isOpen: Bool
     @Binding var forDirections: Bool
+    @Binding var forStop: Bool
     @Binding var alertText: String?
     let startWithVoice: Bool
     let openSettings: () -> Void
@@ -214,7 +216,7 @@ struct SearchScreen: View {
                     Image(systemName: "chevron.left").font(.title3.weight(.semibold))
                 }
                 .foregroundColor(.primary)
-                TextField(forDirections ? "Choose destination" : "Search here", text: $query)
+                TextField(forStop ? "Add stop" : (forDirections ? "Choose destination" : "Search here"), text: $query)
                     .font(.title3)
                     .focused($focused)
                     .submitLabel(.search)
@@ -251,11 +253,17 @@ struct SearchScreen: View {
                             row(icon: "clock", title: p.name, subtitle: p.address) { pick(p) }
                         }
                     } else {
-                        row(icon: "magnifyingglass", title: "Search “\(query)”", subtitle: "", action: submit)
+                        if !forStop {
+                            row(icon: "magnifyingglass", title: "Search “\(query)”", subtitle: "", action: submit)
+                        }
                         ForEach(nav.suggestions) { s in
                             row(icon: "mappin", title: s.main, subtitle: s.secondary) {
-                                let dir = forDirections
-                                nav.choose(s) { _ in if dir { nav.openDirections() } }
+                                if forStop {
+                                    nav.chooseStop(s)
+                                } else {
+                                    let dir = forDirections
+                                    nav.choose(s) { _ in if dir { nav.openDirections() } }
+                                }
                                 close()
                             }
                         }
@@ -321,14 +329,22 @@ struct SearchScreen: View {
             alertText = "Search a place, open it, then tap Save → Save as \(label)."
             return
         }
-        nav.select(p)
-        if forDirections { nav.openDirections() }
+        if forStop {
+            nav.setStop(p)
+        } else {
+            nav.select(p)
+            if forDirections { nav.openDirections() }
+        }
         close()
     }
 
     private func submit() {
         guard !query.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        nav.search(query)
+        if forStop {
+            if let first = nav.suggestions.first { nav.chooseStop(first) }
+        } else {
+            nav.search(query)
+        }
         close()
     }
 
@@ -344,6 +360,7 @@ struct SearchScreen: View {
         nav.suggestions = []
         isOpen = false
         forDirections = false
+        forStop = false
     }
 }
 
@@ -354,6 +371,7 @@ struct DirectionsOverlay: View {
     @ObservedObject var settings: Settings
     @ObservedObject var maps = MapController.shared
     let place: Place
+    let addStop: () -> Void
 
     private var shareURL: URL {
         URL(string: "https://www.google.com/maps/dir/?api=1&destination=\(place.lat),\(place.lng)")!
@@ -368,37 +386,65 @@ struct DirectionsOverlay: View {
     }
 
     private var topCard: some View {
-        HStack(spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             Button { nav.showingDirections = false } label: {
                 Image(systemName: "chevron.left").font(.title3.weight(.semibold))
             }
             .foregroundColor(.primary)
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 12) {
-                    Circle().fill(Color.blue).frame(width: 12, height: 12)
-                        .overlay(Circle().stroke(Color.white, lineWidth: 2))
-                    Text("Your location").foregroundColor(.blue)
+            HStack(alignment: .top, spacing: 14) {
+                VStack(spacing: 4) {
+                    Circle().fill(Color.blue).frame(width: 13, height: 13)
+                        .overlay(Circle().stroke(Color.white, lineWidth: 2)).shadow(radius: 1)
+                    dots
+                    if nav.stop != nil {
+                        Circle().stroke(Color.secondary, lineWidth: 2).frame(width: 11, height: 11)
+                        dots
+                    }
+                    Image(systemName: "mappin").font(.system(size: 15, weight: .bold)).foregroundColor(.red)
                 }
-                .padding(.vertical, 10)
-                Divider().padding(.leading, 24)
-                HStack(spacing: 12) {
-                    Image(systemName: "mappin").foregroundColor(.red).frame(width: 12)
-                    Text(place.name).lineLimit(1)
+                .padding(.top, 14)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Your location").foregroundColor(.blue).frame(height: 40, alignment: .leading)
+                    Divider()
+                    if let st = nav.stop {
+                        HStack {
+                            Text(st.name).lineLimit(1)
+                            Spacer()
+                            Button { nav.removeStop() } label: { Image(systemName: "xmark").foregroundColor(.secondary) }
+                        }
+                        .frame(height: 40)
+                        Divider()
+                    }
+                    Text(place.name).lineLimit(1).frame(height: 40, alignment: .leading)
                 }
-                .padding(.vertical, 10)
             }
-            .font(.body)
+            Menu {
+                Button { addStop() } label: { Label("Add stop", systemImage: "mappin.and.ellipse") }
+                Toggle("Avoid tolls", isOn: binding(\.avoidTolls))
+                Toggle("Avoid highways", isOn: binding(\.avoidHighways))
+                Toggle("Avoid ferries", isOn: binding(\.avoidFerries))
+            } label: {
+                Image(systemName: "ellipsis").font(.title3.weight(.semibold)).foregroundColor(.primary)
+                    .frame(width: 36, height: 36)
+            }
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 22).fill(Color(.systemBackground)).shadow(color: .black.opacity(0.2), radius: 6, y: 2))
         .padding(.horizontal)
         .padding(.top, 6)
     }
 
+    private var dots: some View {
+        VStack(spacing: 3) {
+            ForEach(0..<4, id: \.self) { _ in Circle().fill(Color.secondary).frame(width: 3, height: 3) }
+        }
+    }
+
     private var modeTitle: String {
         switch nav.mode {
         case "TWO_WHEELER": return "Motorbike"
+        case "TRANSIT": return "Transit"
         case "WALK": return "Walk"
         default: return "Drive"
         }
@@ -418,20 +464,23 @@ struct DirectionsOverlay: View {
                 ShareLink(item: shareURL) { circleIcon("square.and.arrow.up") }
                 Button { nav.clear() } label: { circleIcon("xmark") }
             }
-            HStack(spacing: 24) {
-                modeTab("car.fill", "DRIVE")
-                modeTab("scooter", "TWO_WHEELER")
-                modeTab("figure.walk", "WALK")
-                Spacer()
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 24) {
+                    modeTab("car.fill", "DRIVE")
+                    modeTab("scooter", "TWO_WHEELER")
+                    modeTab("tram.fill", "TRANSIT")
+                    modeTab("figure.walk", "WALK")
+                }
             }
             Divider()
-            if nav.mode != "WALK" { avoidChips }
+            if nav.mode == "DRIVE" || nav.mode == "TWO_WHEELER" { avoidChips }
             routeList
             HStack(spacing: 10) {
                 Button { maps.follow = true; nav.startGuidance() } label: {
                     PillLabel(title: "Start", icon: "location.north.fill", filled: true)
                 }
                 .disabled(nav.routes.isEmpty)
+                Button(action: addStop) { PillLabel(title: "Add stops", icon: "mappin.and.ellipse", filled: false) }
                 SaveMenu(settings: settings, place: place)
                 Spacer()
             }
@@ -534,6 +583,8 @@ struct DriveOverlay: View {
     @ObservedObject var settings: Settings
     @ObservedObject var maps: MapController
 
+    @State private var showSearch = false
+
     private var dark: Bool { settings.darkControls }
 
     var body: some View {
@@ -563,7 +614,12 @@ struct DriveOverlay: View {
                 }
                 Spacer()
                 VStack(spacing: 14) {
-                    navButton(maps.headingUp ? "location.north.line.fill" : "safari") { maps.headingUp.toggle() }
+                    Button { maps.headingUp.toggle() } label: {
+                        CompassNeedle(angle: maps.headingUp ? -nav.carBearing : 0, dark: dark)
+                            .frame(width: 58, height: 58)
+                            .background(Circle().fill(dark ? Color.black.opacity(0.85) : Color(.systemBackground)).shadow(radius: 4))
+                    }
+                    navButton("magnifyingglass") { showSearch = true }
                     navButton(settings.voiceOn ? "speaker.wave.2.fill" : "speaker.slash.fill") { settings.voiceOn.toggle() }
                     navButton("arrow.triangle.branch") { maps.overview(nav) }
                 }
@@ -588,8 +644,53 @@ struct DriveOverlay: View {
             .padding(.horizontal)
             .padding(.bottom, 10)
 
+            if !nav.driveResults.isEmpty { driveResults }
             bottomBar
         }
+        .confirmationDialog("Search along the way", isPresented: $showSearch, titleVisibility: .visible) {
+            Button("Gas stations") { nav.searchWhileDriving("gas station") }
+            Button("Charging stations") { nav.searchWhileDriving("EV charging station") }
+            Button("Coffee") { nav.searchWhileDriving("coffee") }
+            Button("Restaurants") { nav.searchWhileDriving("restaurants") }
+            Button("Groceries") { nav.searchWhileDriving("supermarket") }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    private var driveResults: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Nearby").font(.headline)
+                Spacer()
+                Button { nav.driveResults = []; maps.recenter(nav) } label: { circleIcon("xmark") }
+            }
+            .padding(.bottom, 6)
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(nav.driveResults) { p in
+                        Button { nav.goNow(p) } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "mappin.circle.fill").font(.title2).foregroundColor(.red)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(p.name).font(.headline).lineLimit(1)
+                                    Text(p.address).font(.caption).foregroundColor(.secondary).lineLimit(1)
+                                }
+                                Spacer()
+                                Image(systemName: "arrow.triangle.turn.up.right.diamond.fill").foregroundColor(Theme.teal)
+                            }
+                            .padding(.vertical, 8)
+                        }
+                        .foregroundColor(.primary)
+                        Divider()
+                    }
+                }
+            }
+            .frame(maxHeight: 220)
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 22).fill(Color(.systemBackground)).shadow(radius: 6))
+        .padding(.horizontal)
+        .padding(.bottom, 8)
     }
 
     private var banner: some View {
@@ -763,5 +864,74 @@ struct SettingsView: View {
                 Button(action: clear) { Image(systemName: "trash") }.buttonStyle(.borderless).foregroundColor(.red)
             }
         }
+    }
+}
+
+
+// MARK: - Compass (red / white needle)
+
+struct Triangle: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.midX, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
+        p.addLine(to: CGPoint(x: r.minX, y: r.maxY))
+        p.closeSubpath()
+        return p
+    }
+}
+
+struct CompassNeedle: View {
+    let angle: Double
+    let dark: Bool
+    var body: some View {
+        VStack(spacing: 0) {
+            Triangle().fill(Color.red).frame(width: 12, height: 17)
+            Triangle().fill(dark ? Color.white : Color(white: 0.75)).frame(width: 12, height: 17).rotationEffect(.degrees(180))
+        }
+        .rotationEffect(.degrees(angle))
+    }
+}
+
+// MARK: - "You" tab: saved places and recents
+
+struct YouSheet: View {
+    @ObservedObject var nav: NavModel
+    @ObservedObject var settings: Settings
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            List {
+                Section("Saved") {
+                    row("house.fill", "Home", settings.home)
+                    row("briefcase.fill", "Work", settings.work)
+                    ForEach(settings.favorites) { p in row("star.fill", p.name, p) }
+                }
+                if !settings.recents.isEmpty {
+                    Section("Recent") {
+                        ForEach(settings.recents) { p in row("clock", p.name, p) }
+                    }
+                }
+            }
+            .navigationTitle("You")
+            .toolbar { Button("Done") { dismiss() } }
+        }
+    }
+
+    private func row(_ icon: String, _ title: String, _ p: Place?) -> some View {
+        Button {
+            if let p { nav.select(p); dismiss() }
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: icon).foregroundColor(Theme.teal)
+                    .frame(width: 38, height: 38).background(Circle().fill(Theme.tealLight))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.body)
+                    Text(p?.address ?? "Not set").font(.caption).foregroundColor(.secondary).lineLimit(1)
+                }
+            }
+        }
+        .foregroundColor(.primary)
     }
 }

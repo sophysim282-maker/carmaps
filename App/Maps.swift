@@ -74,7 +74,10 @@ final class MapController: NSObject, ObservableObject, GMSMapViewDelegate {
     }
 
     func mapView(_ mapView: GMSMapView, didTap marker: GMSMarker) -> Bool {
-        if let p = marker.userData as? Place { nav?.select(p); return true }
+        if let p = marker.userData as? Place {
+            if nav?.guiding == true { nav?.goNow(p) } else { nav?.select(p) }
+            return true
+        }
         if let i = marker.userData as? Int { nav?.selectRoute(i); return true }
         return marker == phone.dest
     }
@@ -117,12 +120,15 @@ final class MapController: NSObject, ObservableObject, GMSMapViewDelegate {
             carMap.isTrafficEnabled = settings.traffic
         }
 
-        if shownResults != nav.results {
-            shownResults = nav.results
-            for l in layers { drawPins(l, nav.results) }
-            if !nav.results.isEmpty {
+        let pins = nav.guiding ? nav.driveResults : nav.results
+        if shownResults != pins {
+            shownResults = pins
+            for l in layers { drawPins(l, pins) }
+            if !pins.isEmpty {
+                if nav.guiding { follow = false; carFollow = false }
                 var b = GMSCoordinateBounds()
-                for p in nav.results { b = b.includingCoordinate(p.coordinate) }
+                for p in pins { b = b.includingCoordinate(p.coordinate) }
+                if let c = nav.carCoordinate { b = b.includingCoordinate(c) }
                 phoneMap.animate(with: GMSCameraUpdate.fit(b, with: UIEdgeInsets(top: 150, left: 50, bottom: 380, right: 50)))
             }
         }

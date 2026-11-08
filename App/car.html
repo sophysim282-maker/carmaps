@@ -80,10 +80,22 @@ h2{font-size:30px}
 .round{width:72px;height:72px;border-radius:36px}
 #recenter{gap:10px}
 #panel{width:470px}
+#side{position:fixed;top:100px;right:110px;width:440px;display:flex;flex-direction:column;gap:12px}
+.dots{display:flex;flex-direction:column;align-items:center;gap:4px;padding:4px 0}
+.dots i{display:block;width:4px;height:4px;border-radius:2px;background:var(--muted)}
+.trip{display:flex;gap:14px;align-items:stretch}
+.trip .col{display:flex;flex-direction:column;align-items:center;padding-top:14px}
+.trip .names{flex:1;min-width:0}
+.trip .nm{height:46px;display:flex;align-items:center;gap:8px;font-size:20px;border-bottom:1px solid var(--line)}
+.trip .nm:last-child{border-bottom:0}
+.trip .nm span{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tabs{overflow-x:auto;gap:20px}
+.tab{white-space:nowrap;flex:none}
 </style></head><body>
 <img id="map" alt="" draggable="false">
 <div id="msg">Open Car Maps on your iPhone…</div>
 <div id="panel"></div>
+<div id="side"></div>
 <div id="turn"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"
  stroke-linejoin="round"><g id="icon"></g></svg><div><div id="dist"></div><div id="text"></div></div></div>
 <div id="then">Then <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"
@@ -94,6 +106,8 @@ h2{font-size:30px}
 <div id="status" class="card"></div>
 <div id="tools">
  <button class="round" id="recenter" data-a="recenter"></button>
+ <button class="round" id="compass" data-a="compass" title="Compass"></button>
+ <button class="round" id="navsearch" title="Search along the way"></button>
  <button class="round" id="overview" data-a="overview" title="Route overview"></button>
  <button class="round" data-a="layer" id="layer" title="Satellite"></button>
  <button class="round" id="carVoice" title="Voice on car speakers"></button>
@@ -142,15 +156,21 @@ const IC={
  gas:'<rect x="4" y="4" width="9" height="16" rx="1.5"/><path d="M4 10h9"/><path d="M13 8l3.5 2.5V17a1.5 1.5 0 0 0 3 0V8l-2-2"/>',
  bolt:'<path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/>',
  bed:'<path d="M3 19V6M3 15h18v4"/><path d="M21 15v-3a3 3 0 0 0-3-3h-7v6"/><circle cx="7" cy="11.5" r="1.8"/>',
+ train:'<rect x="5" y="3" width="14" height="14" rx="3"/><path d="M5 11h14"/><circle cx="8.5" cy="14" r=".8"/><circle cx="15.5" cy="14" r=".8"/><path d="M8 21l2-4M16 21l-2-4"/>',
  cart:'<path d="M3 4h2.5l2.2 10.5h10.5L20.5 7H7"/><circle cx="9" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/>',
 };
 function svg(n,size){ return '<svg class="i" width="'+(size||24)+'" height="'+(size||24)+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+(IC[n]||'')+'</svg>'; }
 const CATS=[['food','Restaurants','restaurants'],['coffee','Coffee','coffee'],['gas','Gas','gas station'],['bolt','Charging','EV charging station'],
  ['bed','Hotels','hotels'],['cart','Groceries','supermarket']];
-const MODES=[['DRIVE','car'],['TWO_WHEELER','moto'],['WALK','walk']];
+const MODES=[['DRIVE','car'],['TWO_WHEELER','moto'],['TRANSIT','train'],['WALK','walk']];
+const NEAR=[['gas','Gas','gas station'],['bolt','Charging','EV charging station'],['coffee','Coffee','coffee'],['food','Restaurants','restaurants'],['cart','Groceries','supermarket']];
 
 /* ---------- icons on the round buttons ---------- */
-$('recenter').innerHTML=svg('nav',26)+'<span>Re-centre</span>'; $('overview').innerHTML=svg('route',30);
+$('recenter').innerHTML=svg('nav',26)+'<span>Re-centre</span>';
+$('compass').innerHTML='<svg width="36" height="36" viewBox="0 0 24 24"><g id="needle"><path d="M12 2.5l3.6 9.5H8.4z" fill="#d93025"/><path d="M12 21.5l3.6-9.5H8.4z" fill="#b0b0b0"/></g></svg>';
+$('navsearch').innerHTML=svg('search',30);
+let nearOpen=false;
+$('navsearch').onclick=()=>{ nearOpen=!nearOpen; lastSig=''; renderPanel(); }; $('overview').innerHTML=svg('route',30);
 $('layer').innerHTML=svg('layers',30); $('carVoice').innerHTML=svg('volOff',30); $('zin').innerHTML=svg('plus',30);
 $('zout').innerHTML=svg('minus',30); $('fs').innerHTML=svg('full',28);
 document.querySelector('#eta .btn').innerHTML='Exit';
@@ -194,11 +214,11 @@ function endDrag(){
 map.addEventListener('pointerup',endDrag); map.addEventListener('pointercancel',endDrag);
 
 /* ---------- side panel (search, results, place, directions) ---------- */
-let S={}, lastSig='', typed='', typeT=null;
+let S={}, lastSig='', typed='', typeT=null, stopMode=false;
 function row(ic,title,sub,attrs){ return '<div class="row" '+attrs+'><div class="ic">'+svg(ic,24)+'</div><div class="grow"><div class="t">'+esc(title)+
   '</div>'+(sub?'<div class="sub">'+esc(sub)+'</div>':'')+'</div></div>'; }
 function searchBox(){
-  return '<div id="searchBox" class="card"><span class="pin">'+svg('pin',30)+'</span><input id="q" placeholder="Search here" autocomplete="off" value="'+esc(typed)+'">'+
+  return '<div id="searchBox" class="card"><span class="pin">'+svg('pin',30)+'</span><input id="q" placeholder="'+(stopMode?'Add stop':'Search here')+'" autocomplete="off" value="'+esc(typed)+'">'+
    (typed?'<button class="x" id="qx">'+svg('close',22)+'</button>':'')+'</div>';
 }
 function homeHTML(){
@@ -217,6 +237,13 @@ function homeHTML(){
     h+='<div class="head">Recent</div>';
     S.recents.forEach((r,i)=>{ h+=row('clock',r.name,r.address,'data-a="recent" data-i="'+i+'"'); });
   }
+  return h+'</div>';
+}
+function stopHTML(){
+  let h=searchBox()+'<div class="card box"><div class="sheet" style="padding-bottom:4px"><div class="top"><h2>Add stop</h2>'+
+    '<button class="x" id="stopCancel">'+svg('close',22)+'</button></div></div>';
+  if(!typed) h+='<div class="row"><div class="grow muted">Type a place name with the keyboard</div></div>';
+  (S.suggestions||[]).forEach(s=>{ if(typed) h+=row('pin',s.main,s.secondary,'data-a="stopsuggest" data-id="'+esc(s.id)+'"'); });
   return h+'</div>';
 }
 function resultsHTML(){
@@ -242,36 +269,66 @@ function placeHTML(){
 }
 function directionsHTML(){
   const p=S.place||{}, m=S.mode||'DRIVE';
-  const title={DRIVE:'Drive',TWO_WHEELER:'Motorbike',WALK:'Walk'}[m]||'Drive';
+  const title={DRIVE:'Drive',TWO_WHEELER:'Motorbike',TRANSIT:'Transit',WALK:'Walk'}[m]||'Drive';
   let h='<div class="card sheet"><div class="top"><button class="x" data-a="back">'+svg('back',22)+'</button><h2>'+title+'</h2><button class="x" data-a="close">'+svg('close',22)+'</button></div>';
-  h+='<div class="line"><span style="color:#1a73e8">●</span> Your location &nbsp;→&nbsp; <span style="color:#d93025">'+svg('pin',20)+'</span> '+esc(p.name)+'</div>';
+  const dots='<div class="dots"><i></i><i></i><i></i><i></i></div>';
+  h+='<div class="trip"><div class="col"><span style="width:14px;height:14px;border-radius:7px;background:#1a73e8;border:2px solid #fff;box-shadow:0 0 2px rgba(0,0,0,.5)"></span>'+dots+
+    (S.stop?'<span style="width:12px;height:12px;border-radius:6px;border:2px solid var(--muted)"></span>'+dots:'')+
+    '<span style="color:#d93025;display:flex">'+svg('pin',20)+'</span></div><div class="names">'+
+    '<div class="nm"><span style="color:#1a73e8">Your location</span></div>'+
+    (S.stop?'<div class="nm"><span>'+esc(S.stop)+'</span><button class="x" style="width:38px;height:38px" data-a="removestop">'+svg('close',18)+'</button></div>':'')+
+    '<div class="nm"><span>'+esc(p.name)+'</span></div></div></div>';
   h+='<div class="tabs">'+MODES.map(x=>'<button class="tab'+(x[0]===m?' on':'')+'" data-a="mode" data-m="'+x[0]+'">'+svg(x[1],26)+' '+
      esc((S.modes||{})[x[0]]||'…')+'</button>').join('')+'</div>';
   const rs=S.routes||[];
   if(!rs.length) h+='<div class="line muted">'+esc(S.status||'Finding routes…')+'</div>';
   rs.forEach((r,i)=>{ h+='<div class="route'+(r.sel?' on':'')+(i===0?' best':'')+'" data-a="route" data-i="'+i+'"><div class="tt">'+esc(r.time)+
      '</div><div class="muted">Arrive '+esc(r.arrive)+(i===0?' · Best route':'')+' · '+esc(r.dist)+'</div></div>'; });
-  h+='<div class="btns"><button class="btn fill" data-a="start">'+svg('nav',22)+'Start</button></div>';
+  h+='<div class="btns"><button class="btn fill" data-a="start">'+svg('nav',22)+'Start</button>'+
+     '<button class="btn" id="addStop">'+svg('pin',22)+'Add stops</button></div>';
   return h+'</div>';
+}
+function sideHTML(){
+  let h='';
+  if(nearOpen) h+='<div class="card sheet"><div class="top"><h2>Search along the way</h2><button class="x" id="nearClose">'+svg('close',22)+
+     '</button></div><div class="chips" style="flex-wrap:wrap">'+NEAR.map(c=>'<button class="chip" data-a="navsearch" data-q="'+c[2]+'">'+
+     svg(c[0],22)+'<span>'+c[1]+'</span></button>').join('')+'</div></div>';
+  const r=S.driveResults||[];
+  if(r.length){
+    h+='<div class="card box"><div class="sheet" style="padding-bottom:4px"><div class="top"><h2>Nearby</h2><button class="x" data-a="clearnear">'+
+       svg('close',22)+'</button></div></div>';
+    r.forEach((x,i)=>{ h+=row('pin',x.name,x.address,'data-a="go" data-i="'+i+'"'); });
+    h+='</div>';
+  }
+  return h;
 }
 function renderPanel(){
   const scr=S.screen||'home';
   const sig=JSON.stringify([scr,S.place,S.routes,S.mode,S.modes,S.results,S.home,S.work,S.favorites,S.recents,S.status,
-     typed?S.suggestions:0, typed?1:0]);
+     typed?S.suggestions:0, typed?1:0, S.stop, stopMode, nearOpen, S.driveResults]);
   if(sig===lastSig) return; lastSig=sig;
   const panel=$('panel'); const hadFocus=document.activeElement&&document.activeElement.id==='q';
+  $('side').innerHTML= scr==='drive'?sideHTML():'';
+  if(scr!=='drive') nearOpen=false;
+  if(scr!=='directions') stopMode=false;
   if(scr==='drive'){ panel.innerHTML=''; return; }
-  panel.innerHTML= scr==='results'?resultsHTML(): scr==='place'?placeHTML(): scr==='directions'?directionsHTML(): homeHTML();
+  panel.innerHTML= stopMode?stopHTML(): scr==='results'?resultsHTML(): scr==='place'?placeHTML(): scr==='directions'?directionsHTML(): homeHTML();
+  const as=$('addStop'); if(as) as.onclick=()=>{ stopMode=true; typed=''; lastSig=''; renderPanel(); const q=$('q'); if(q) q.focus(); };
+  const sc=$('stopCancel'); if(sc) sc.onclick=()=>{ stopMode=false; typed=''; lastSig=''; renderPanel(); };
   const q=$('q');
   if(q){
     if(hadFocus){ q.focus(); q.setSelectionRange(q.value.length,q.value.length); }
     q.addEventListener('input',()=>{ typed=q.value; clearTimeout(typeT); typeT=setTimeout(()=>{ cmd('type',{q:typed}); },300);
       if(!typed||typed.length===1){ lastSig=''; renderPanel(); } });
-    q.addEventListener('keydown',e=>{ if(e.key==='Enter'&&typed.trim()){ cmd('search',{q:typed}); typed=''; q.blur(); } });
+    q.addEventListener('keydown',e=>{ if(e.key==='Enter'&&typed.trim()&&!stopMode){ cmd('search',{q:typed}); typed=''; q.blur(); } });
   }
   const qx=$('qx'); if(qx) qx.onclick=()=>{ typed=''; lastSig=''; renderPanel(); };
 }
-document.addEventListener('click',e=>{ const b=e.target.closest('[data-a="search"],[data-a="suggest"]'); if(b){ typed=''; } });
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-a="search"],[data-a="suggest"],[data-a="stopsuggest"]'); if(b){ typed=''; stopMode=false; }
+  if(e.target.closest('[data-a="navsearch"]')) nearOpen=false;
+  if(e.target.closest('#nearClose')){ nearOpen=false; lastSig=''; renderPanel(); }
+});
 
 /* ---------- voice on car speakers ---------- */
 let carVoice=false,lastSpoken=-1,lang='en';
@@ -290,6 +347,8 @@ async function poll(){
     const on=S.screen==='drive';
     $('turn').style.display=on?'flex':'none'; $('eta').style.display=on?'flex':'none';
     $('overview').style.display=on?'flex':'none';
+    $('compass').style.display=on?'flex':'none'; $('navsearch').style.display=on?'flex':'none';
+    const ng=$('needle'); if(ng) ng.setAttribute('transform','rotate('+(S.headingUp?-(S.heading||0):0)+' 12 12)');
     $('recenter').style.display=(on&&S.follow===false)?'flex':'none';
     if(on){
       $('icon').innerHTML=ICON[S.maneuver]||ST; $('dist').textContent=S.distance; $('text').textContent=S.instruction;
