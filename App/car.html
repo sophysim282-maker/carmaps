@@ -103,8 +103,7 @@ h2{font-size:30px}
 <img id="map" alt="" draggable="false">
 <div id="msg">Open Car Maps on your iPhone…</div>
 <div id="bgWrap"><img id="bgImg" alt=""></div>
-<div id="bgArrow"><svg width="64" height="64" viewBox="0 0 48 48"><path d="M24 4L41 42L24 33L7 42Z" fill="#1a73e8"
- stroke="#fff" stroke-width="4" stroke-linejoin="round"/></svg></div>
+<div id="bgArrow"></div>
 <div id="bgNote" class="card">iPhone locked · simple map</div>
 <div id="panel"></div>
 <div id="side"></div>
@@ -365,21 +364,31 @@ function updateBg(){
   }
   place();
 }
+const CAR_SVG='<svg width="46" height="80" viewBox="0 0 46 80"><rect x="7" y="4" width="32" height="72" rx="13" fill="#fff" stroke="#b8b8b8"/>'+
+ '<rect x="2" y="25" width="7" height="5" rx="2" fill="#ccc"/><rect x="37" y="25" width="7" height="5" rx="2" fill="#ccc"/>'+
+ '<path d="M10 31Q23 19 36 31L32.5 40H13.5Z" fill="#214a94"/><rect x="13" y="40" width="20" height="20" rx="4" fill="#f0f0f0"/>'+
+ '<path d="M13.5 60H32.5L34.5 67Q23 71 11.5 67Z" fill="#214a94"/><ellipse cx="14" cy="8" rx="4" ry="2" fill="#fff5bf"/>'+
+ '<ellipse cx="32" cy="8" rx="4" ry="2" fill="#fff5bf"/><rect x="10" y="71" width="8" height="3" rx="1.5" fill="#e01f1f"/>'+
+ '<rect x="28" y="71" width="8" height="3" rx="1.5" fill="#e01f1f"/></svg>';
+const ARROW_SVG='<svg width="64" height="64" viewBox="0 0 48 48"><path d="M24 4L41 42L24 33L7 42Z" fill="#1a73e8" stroke="#fff" stroke-width="4" stroke-linejoin="round"/></svg>';
+let iconShown='';
 function place(){
   if(BG.id<0||!S.lat) return;
   const img=$('bgImg'), arrow=$('bgArrow'), drive=S.screen==='drive', k=drive?2.2:1.5;
   const c=world(S.lat,S.lng,BG.z), o=world(BG.lat,BG.lng,BG.z);
   const px=640+(c[0]-o[0]), py=640+(c[1]-o[1]);
-  const ax=innerWidth/2, ay=drive?innerHeight*0.68:innerHeight/2;
+  const ax=innerWidth/2, ay=drive?innerHeight*0.74:innerHeight/2;
   let h=S.heading||0;
   if(hCont===null) hCont=h; else hCont+=((h-(hCont%360)+540)%360)-180;
   img.style.width=1280*k+'px'; img.style.height=1280*k+'px';
   img.style.left=(ax-px*k)+'px'; img.style.top=(ay-py*k)+'px';
   img.style.transformOrigin=(px*k)+'px '+(py*k)+'px';
-  img.style.transform=drive?'rotateX(48deg) rotate('+(-hCont)+'deg)':'none';
+  img.style.transform=drive?'rotateX(62deg) rotate('+(-hCont)+'deg)':'none';
   $('bgWrap').style.perspectiveOrigin=ax+'px '+ay+'px';
   arrow.style.display='block'; arrow.style.left=ax+'px'; arrow.style.top=ay+'px';
-  arrow.firstElementChild.style.transform=drive?'scaleY(.8)':'rotate('+h+'deg)';
+  const want=S.carIcon==='arrow'?'arrow':'car';
+  if(iconShown!==want){ iconShown=want; arrow.innerHTML=want==='car'?CAR_SVG:ARROW_SVG; }
+  arrow.firstElementChild.style.transform=drive?'scale(1.5,1.15)':'rotate('+h+'deg) scale(1.2)';
 }
 
 /* ---------- poll the iPhone ---------- */

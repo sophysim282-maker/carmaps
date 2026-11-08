@@ -103,7 +103,7 @@ struct ContentView: View {
         .sheet(isPresented: $showYou) { YouSheet(nav: nav, settings: settings) }
         .sheet(isPresented: $showSettings) { SettingsView(settings: settings, car: car, vpn: vpn) }
         .sheet(isPresented: $showLayers) {
-            LayersSheet(settings: settings).presentationDetents([.height(300)])
+            LayersSheet(settings: settings).presentationDetents([.height(360)])
         }
         .alert(alertText ?? "", isPresented: Binding(get: { alertText != nil }, set: { if !$0 { alertText = nil } })) {
             Button("OK", role: .cancel) {}

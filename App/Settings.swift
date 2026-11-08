@@ -23,6 +23,7 @@ final class Settings: ObservableObject {
     @Published var mapType: String { didSet { d.set(mapType, forKey: "mapType") } }
     @Published var traffic: Bool { didSet { d.set(traffic, forKey: "traffic") } }
     @Published var voiceOn: Bool { didSet { d.set(voiceOn, forKey: "voice") } }
+    @Published var carIcon: String { didSet { d.set(carIcon, forKey: "carIcon") } }   // "car" or "arrow"
     @Published var avoidTolls: Bool { didSet { d.set(avoidTolls, forKey: "avoidTolls") } }
     @Published var avoidHighways: Bool { didSet { d.set(avoidHighways, forKey: "avoidHighways") } }
     @Published var avoidFerries: Bool { didSet { d.set(avoidFerries, forKey: "avoidFerries") } }
@@ -46,6 +47,7 @@ final class Settings: ObservableObject {
         mapType = d.string(forKey: "mapType") ?? "normal"
         traffic = Self.bool("traffic", true)
         voiceOn = Self.bool("voice", true)
+        carIcon = d.string(forKey: "carIcon") ?? "car"
         avoidTolls = Self.bool("avoidTolls", false)
         avoidHighways = Self.bool("avoidHighways", false)
         avoidFerries = Self.bool("avoidFerries", false)

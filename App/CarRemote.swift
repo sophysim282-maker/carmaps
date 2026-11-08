@@ -29,6 +29,7 @@ extension NavModel {
             "spokenId": spokenId,
             "status": status,
             "mapType": s.mapType,
+            "carIcon": s.carIcon,
             "follow": MapController.shared.carFollow,
             "home": s.home?.name ?? "",
             "work": s.work?.name ?? "",

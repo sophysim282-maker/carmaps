@@ -752,6 +752,11 @@ struct LayersSheet: View {
                 Spacer()
             }
             Toggle("Traffic", isOn: $settings.traffic)
+            Picker("Driving icon", selection: $settings.carIcon) {
+                Text("🚗 Car").tag("car")
+                Text("➤ Arrow").tag("arrow")
+            }
+            .pickerStyle(.segmented)
             Picker("Colour", selection: $settings.theme) {
                 Text("Auto").tag("auto")
                 Text("Day").tag("day")

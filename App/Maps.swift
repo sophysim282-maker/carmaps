@@ -14,7 +14,7 @@ final class MapController: NSObject, ObservableObject, GMSMapViewDelegate {
     @Published var follow = true
     @Published var headingUp = true
     @Published var carFollow = true
-    private var carZoom: Float = 17
+    private var carZoom: Float = 16.5
     weak var nav: NavModel?
 
     let phoneMap: GMSMapView
@@ -29,7 +29,7 @@ final class MapController: NSObject, ObservableObject, GMSMapViewDelegate {
         let arrow = GMSMarker()
         init(_ map: GMSMapView) {
             self.map = map
-            arrow.icon = MapController.arrowImage
+            arrow.icon = MapController.carImage
             arrow.groundAnchor = CGPoint(x: 0.5, y: 0.5)
             arrow.isFlat = true
             arrow.zIndex = 100
@@ -46,6 +46,8 @@ final class MapController: NSObject, ObservableObject, GMSMapViewDelegate {
     private var mapType: String?
     private var traffic: Bool?
     private var hadFix = false
+    private var iconStyle = ""
+
     private var wasGuiding = false
 
     override init() {
@@ -114,6 +116,10 @@ final class MapController: NSObject, ObservableObject, GMSMapViewDelegate {
             phoneMap.mapType = t
             carMap.mapType = t
         }
+        if iconStyle != settings.carIcon {
+            iconStyle = settings.carIcon
+            for l in layers { l.arrow.icon = settings.carIcon == "arrow" ? Self.arrowImage : Self.carImage }
+        }
         if traffic != settings.traffic {
             traffic = settings.traffic
             phoneMap.isTrafficEnabled = settings.traffic
@@ -158,13 +164,14 @@ final class MapController: NSObject, ObservableObject, GMSMapViewDelegate {
         }
 
         if nav.guiding {
-            phoneMap.padding = UIEdgeInsets(top: 330, left: 0, bottom: 120, right: 0)
+            phoneMap.padding = UIEdgeInsets(top: 400, left: 0, bottom: 120, right: 0)
         } else if nav.showingDirections {
             phoneMap.padding = UIEdgeInsets(top: 130, left: 0, bottom: 360, right: 0)
         } else {
             phoneMap.padding = UIEdgeInsets(top: 130, left: 0, bottom: nav.selected == nil ? 20 : 300, right: 0)
         }
 
+        carMap.padding = nav.guiding ? UIEdgeInsets(top: 190, left: 0, bottom: 0, right: 0) : .zero
         if wasGuiding && !nav.guiding { carMap.camera = phoneMap.camera; follow = true; carFollow = true }
         if !wasGuiding && nav.guiding { follow = true; carFollow = true }
         wasGuiding = nav.guiding
@@ -177,10 +184,10 @@ final class MapController: NSObject, ObservableObject, GMSMapViewDelegate {
         if nav.guiding, let c = nav.carCoordinate {
             let bearing = headingUp ? nav.carBearing : 0
             if follow {
-                phoneMap.animate(to: GMSCameraPosition(target: c, zoom: 18, bearing: bearing, viewingAngle: headingUp ? 60 : 0))
+                phoneMap.animate(to: GMSCameraPosition(target: c, zoom: 17, bearing: bearing, viewingAngle: headingUp ? 65 : 0))
             }
             if carFollow {
-                carMap.animate(to: GMSCameraPosition(target: c, zoom: carZoom, bearing: bearing, viewingAngle: headingUp ? 55 : 0))
+                carMap.animate(to: GMSCameraPosition(target: c, zoom: carZoom, bearing: bearing, viewingAngle: headingUp ? 65 : 0))
             }
         }
     }
@@ -304,6 +311,55 @@ final class MapController: NSObject, ObservableObject, GMSMapViewDelegate {
                                     withAttributes: [.font: font, .foregroundColor: selected ? UIColor.white : UIColor.black])
         }
     }
+
+    /// White car seen from above (front points up), like the car icon in Google Maps.
+    static let carImage: UIImage = {
+        UIGraphicsImageRenderer(size: CGSize(width: 46, height: 80)).image { ctx in
+            let c = ctx.cgContext
+            let body = UIBezierPath(roundedRect: CGRect(x: 7, y: 4, width: 32, height: 72), cornerRadius: 13)
+            c.saveGState()
+            c.setShadow(offset: CGSize(width: 0, height: 3), blur: 6, color: UIColor.black.withAlphaComponent(0.5).cgColor)
+            UIColor.white.setFill()
+            body.fill()
+            c.restoreGState()
+            UIColor(white: 0.72, alpha: 1).setStroke()
+            body.lineWidth = 1
+            body.stroke()
+            // mirrors
+            UIColor(white: 0.8, alpha: 1).setFill()
+            UIBezierPath(roundedRect: CGRect(x: 2, y: 25, width: 7, height: 5), cornerRadius: 2).fill()
+            UIBezierPath(roundedRect: CGRect(x: 37, y: 25, width: 7, height: 5), cornerRadius: 2).fill()
+            let glass = UIColor(red: 0.13, green: 0.29, blue: 0.58, alpha: 1)
+            glass.setFill()
+            // windshield
+            let ws = UIBezierPath()
+            ws.move(to: CGPoint(x: 10, y: 31))
+            ws.addQuadCurve(to: CGPoint(x: 36, y: 31), controlPoint: CGPoint(x: 23, y: 19))
+            ws.addLine(to: CGPoint(x: 32.5, y: 40))
+            ws.addLine(to: CGPoint(x: 13.5, y: 40))
+            ws.close()
+            ws.fill()
+            // roof
+            UIColor(white: 0.94, alpha: 1).setFill()
+            UIBezierPath(roundedRect: CGRect(x: 13, y: 40, width: 20, height: 20), cornerRadius: 4).fill()
+            // rear window
+            glass.setFill()
+            let rw = UIBezierPath()
+            rw.move(to: CGPoint(x: 13.5, y: 60))
+            rw.addLine(to: CGPoint(x: 32.5, y: 60))
+            rw.addLine(to: CGPoint(x: 34.5, y: 67))
+            rw.addQuadCurve(to: CGPoint(x: 11.5, y: 67), controlPoint: CGPoint(x: 23, y: 71))
+            rw.close()
+            rw.fill()
+            // headlights and tail lights
+            UIColor(red: 1, green: 0.96, blue: 0.75, alpha: 1).setFill()
+            UIBezierPath(ovalIn: CGRect(x: 10, y: 6, width: 8, height: 4)).fill()
+            UIBezierPath(ovalIn: CGRect(x: 28, y: 6, width: 8, height: 4)).fill()
+            UIColor(red: 0.88, green: 0.12, blue: 0.12, alpha: 1).setFill()
+            UIBezierPath(roundedRect: CGRect(x: 10, y: 71, width: 8, height: 3), cornerRadius: 1.5).fill()
+            UIBezierPath(roundedRect: CGRect(x: 28, y: 71, width: 8, height: 3), cornerRadius: 1.5).fill()
+        }
+    }()
 
     /// Blue navigation arrow with white edge.
     static let arrowImage: UIImage = {
