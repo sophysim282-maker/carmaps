@@ -3,11 +3,10 @@ import CoreLocation
 import AVFoundation
 import GoogleMaps
 
-struct Place: Identifiable {
-    let id = UUID()
-    let name: String
-    let address: String
-    let coordinate: CLLocationCoordinate2D
+struct Suggestion: Identifiable {
+    let id: String
+    let main: String
+    let secondary: String
 }
 
 struct Step {
@@ -17,21 +16,23 @@ struct Step {
     let end: CLLocationCoordinate2D
 }
 
-/// Search, route and turn-by-turn logic using Google Places API (New) + Routes API.
+/// Search, route preview and turn-by-turn guidance (Google Places API New + Routes API).
 final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     let apiKey: String
+    let settings = Settings.shared
 
     @Published var location: CLLocation?
     @Published var results: [Place] = []
-    @Published var destination: Place?
+    @Published var suggestions: [Suggestion] = []
+    @Published var selected: Place?
     @Published var path: GMSPath?
     @Published var steps: [Step] = []
+    @Published var guiding = false
     @Published var stepIndex = 0
     @Published var distanceToNext: Double = 0
     @Published var remainingMeters: Double = 0
     @Published var remainingSeconds: Double = 0
     @Published var status = ""
-    @Published var voiceOn = true
 
     /// Each time something is spoken, the car page gets it too.
     private(set) var spokenText = ""
@@ -45,8 +46,8 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     private var saidNear = false
     private var lastReroute = Date.distantPast
     private var routing = false
-
-    var navigating: Bool { destination != nil && !steps.isEmpty }
+    private var sessionToken = UUID().uuidString
+    private var autoWork: DispatchWorkItem?
 
     init(apiKey: String) {
         self.apiKey = apiKey
@@ -60,38 +61,48 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
                                                          options: [.duckOthers, .mixWithOthers])
     }
 
-    // MARK: - Instruction text for screens
+    // MARK: - Text for screens
 
     var nextInstruction: String {
-        guard navigating else { return "" }
+        guard guiding, !steps.isEmpty else { return "" }
         if stepIndex + 1 < steps.count { return steps[stepIndex + 1].instruction }
         return "Arrive at destination"
     }
 
     var nextManeuver: String {
-        guard navigating, stepIndex + 1 < steps.count else { return "ARRIVE" }
+        guard guiding, stepIndex + 1 < steps.count else { return "ARRIVE" }
         return steps[stepIndex + 1].maneuver
+    }
+
+    var arrivalText: String {
+        let f = DateFormatter()
+        f.timeStyle = .short
+        return f.string(from: Date().addingTimeInterval(remainingSeconds))
     }
 
     // MARK: - Location
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let loc = locations.last, loc.horizontalAccuracy >= 0 else { return }
+        let first = location == nil
         location = loc
-        if navigating { progress(loc) }
+        if first, selected != nil, path == nil { fetchRoute() }
+        if guiding { progress(loc) }
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         manager.startUpdatingLocation()
     }
 
-    // MARK: - Search (Places API New)
+    // MARK: - Search
 
     func search(_ text: String) {
         let q = text.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return }
+        autoWork?.cancel()
+        suggestions = []
         status = "Searching…"
-        var body: [String: Any] = ["textQuery": q, "pageSize": 8]
+        var body: [String: Any] = ["textQuery": q, "pageSize": 8, "languageCode": settings.language]
         if let l = location {
             body["locationBias"] = ["circle": ["center": ["latitude": l.coordinate.latitude,
                                                           "longitude": l.coordinate.longitude],
@@ -105,46 +116,118 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
                 guard let loc = p["location"] as? [String: Any],
                       let lat = loc["latitude"] as? Double, let lng = loc["longitude"] as? Double else { return nil }
                 let name = (p["displayName"] as? [String: Any])?["text"] as? String ?? "Place"
-                return Place(name: name, address: p["formattedAddress"] as? String ?? "",
-                             coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lng))
+                return Place(name: name, address: p["formattedAddress"] as? String ?? "", lat: lat, lng: lng)
             }
             self.status = self.results.isEmpty ? "Nothing found" : ""
         }
     }
 
-    // MARK: - Route (Routes API)
+    // MARK: - Suggestions while typing (Places Autocomplete)
 
-    func start(to place: Place) {
-        destination = place
-        results = []
-        route()
+    func autocomplete(_ text: String) {
+        autoWork?.cancel()
+        let q = text.trimmingCharacters(in: .whitespaces)
+        guard q.count >= 2 else { suggestions = []; return }
+        let work = DispatchWorkItem { [weak self] in self?.runAutocomplete(q) }
+        autoWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
     }
 
-    func stop() {
-        destination = nil
-        steps = []
+    private func runAutocomplete(_ q: String) {
+        var body: [String: Any] = ["input": q, "languageCode": settings.language, "sessionToken": sessionToken]
+        if let l = location {
+            body["locationBias"] = ["circle": ["center": ["latitude": l.coordinate.latitude,
+                                                          "longitude": l.coordinate.longitude],
+                                               "radius": 50000.0]]
+        }
+        call("https://places.googleapis.com/v1/places:autocomplete", body: body,
+             fields: "suggestions.placePrediction.placeId,suggestions.placePrediction.structuredFormat,suggestions.placePrediction.text",
+             quiet: true) { [weak self] json in
+            guard let self else { return }
+            let list = (json["suggestions"] as? [[String: Any]]) ?? []
+            self.suggestions = list.compactMap { item in
+                guard let pp = item["placePrediction"] as? [String: Any], let id = pp["placeId"] as? String else { return nil }
+                let sf = pp["structuredFormat"] as? [String: Any]
+                let main = (sf?["mainText"] as? [String: Any])?["text"] as? String
+                    ?? (pp["text"] as? [String: Any])?["text"] as? String ?? ""
+                let secondary = (sf?["secondaryText"] as? [String: Any])?["text"] as? String ?? ""
+                return Suggestion(id: id, main: main, secondary: secondary)
+            }
+        }
+    }
+
+    func choose(_ s: Suggestion) {
+        autoWork?.cancel()
+        suggestions = []
+        status = "Loading…"
+        let url = "https://places.googleapis.com/v1/places/\(s.id)?languageCode=\(settings.language)&sessionToken=\(sessionToken)"
+        sessionToken = UUID().uuidString
+        call(url, body: nil, fields: "displayName,formattedAddress,location") { [weak self] json in
+            guard let self, let loc = json["location"] as? [String: Any],
+                  let lat = loc["latitude"] as? Double, let lng = loc["longitude"] as? Double else {
+                self?.status = "Could not open this place"
+                return
+            }
+            let name = (json["displayName"] as? [String: Any])?["text"] as? String ?? s.main
+            self.status = ""
+            self.select(Place(name: name, address: json["formattedAddress"] as? String ?? s.secondary, lat: lat, lng: lng))
+        }
+    }
+
+    // MARK: - Preview / start / stop
+
+    /// Show the place and its route (like tapping a place in Google Maps).
+    func select(_ place: Place) {
+        endGuidance()
+        selected = place
+        results = []
         path = nil
-        status = ""
+        steps = []
+        fetchRoute()
+    }
+
+    func startGuidance() {
+        guard !steps.isEmpty else { return }
+        guiding = true
+        stepIndex = 0
+        saidFar = false
+        saidNear = false
+        lastReroute = Date()
+        say(steps[0].instruction)
+        if let l = location { progress(l) }
+    }
+
+    func endGuidance() {
+        guiding = false
         speech.stopSpeaking(at: .immediate)
     }
 
-    private func route() {
-        guard let dest = destination else { return }
+    func clear() {
+        endGuidance()
+        selected = nil
+        path = nil
+        steps = []
+        status = ""
+    }
+
+    // MARK: - Route (Routes API)
+
+    private func fetchRoute() {
+        guard let dest = selected else { return }
         guard let here = location else { status = "Waiting for GPS…"; return }
         guard !routing else { return }
         routing = true
         lastReroute = Date()
-        status = "Finding route…"
+        status = guiding ? "Re-routing…" : "Finding route…"
         func ll(_ c: CLLocationCoordinate2D) -> [String: Any] {
             ["location": ["latLng": ["latitude": c.latitude, "longitude": c.longitude]]]
         }
-        let lang = Locale.preferredLanguages.first ?? "en"
         let body: [String: Any] = [
             "origin": ll(here.coordinate),
             "destination": ll(dest.coordinate),
             "travelMode": "DRIVE",
             "routingPreference": "TRAFFIC_AWARE",
-            "languageCode": lang,
+            "languageCode": settings.language,
             "units": "METRIC",
         ]
         let fields = "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline," +
@@ -152,10 +235,10 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         post("https://routes.googleapis.com/directions/v2:computeRoutes", body: body, fields: fields) { [weak self] json in
             guard let self else { return }
             self.routing = false
-            guard self.destination != nil,
+            guard self.selected == dest,
                   let r = (json["routes"] as? [[String: Any]])?.first,
                   let enc = (r["polyline"] as? [String: Any])?["encodedPolyline"] as? String else {
-                if self.status == "Finding route…" { self.status = "No route found" }
+                if self.selected == dest { self.status = "No route found" }
                 return
             }
             var newSteps: [Step] = []
@@ -178,11 +261,12 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
             self.stepIndex = 0
             self.totalMeters = Double(r["distanceMeters"] as? Int ?? 0)
             self.totalSeconds = Double((r["duration"] as? String ?? "0s").dropLast()) ?? 0
+            self.remainingMeters = self.totalMeters
+            self.remainingSeconds = self.totalSeconds
             self.saidFar = false
             self.saidNear = false
             self.status = ""
-            self.say(newSteps[0].instruction)
-            if let l = self.location { self.progress(l) }
+            if self.guiding, let l = self.location { self.progress(l) }
         }
     }
 
@@ -191,15 +275,15 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     private func progress(_ loc: CLLocation) {
         guard stepIndex < steps.count else { return }
 
-        // Moved past the end of the current step → next step.
-        var d = loc.distance(from: CLLocation(latitude: steps[stepIndex].end.latitude,
-                                              longitude: steps[stepIndex].end.longitude))
+        func dist(_ i: Int) -> Double {
+            loc.distance(from: CLLocation(latitude: steps[i].end.latitude, longitude: steps[i].end.longitude))
+        }
+        var d = dist(stepIndex)
         while d < 25, stepIndex < steps.count - 1 {
             stepIndex += 1
             saidFar = false
             saidNear = false
-            d = loc.distance(from: CLLocation(latitude: steps[stepIndex].end.latitude,
-                                              longitude: steps[stepIndex].end.longitude))
+            d = dist(stepIndex)
         }
         distanceToNext = d
 
@@ -207,18 +291,16 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         remainingMeters = d + after
         remainingSeconds = totalMeters > 0 ? totalSeconds * remainingMeters / totalMeters : 0
 
-        // Arrived
         if stepIndex == steps.count - 1, d < 30 {
-            say("You have arrived")
-            stop()
+            say(settings.language == "en" ? "You have arrived" : nextInstruction)
+            clear()
             status = "Arrived ✅"
             return
         }
 
-        // Voice prompts
         if !saidFar, d < 500, d > 200, steps[stepIndex].distance > 700 {
             saidFar = true
-            say("In \(Self.distanceText(d)), \(nextInstruction)")
+            say(settings.language == "en" ? "In \(Self.distanceText(d)), \(nextInstruction)" : nextInstruction)
         }
         if !saidNear, d < 80 {
             saidNear = true
@@ -226,21 +308,19 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
             say(nextInstruction)
         }
 
-        // Off route → new route (at most every 10 s)
         if let p = path, Date().timeIntervalSince(lastReroute) > 10,
            !GMSGeometryIsLocationOnPathTolerance(loc.coordinate, p, true, 60) {
-            status = "Re-routing…"
-            route()
+            fetchRoute()
         }
     }
 
     private func say(_ text: String) {
         spokenText = text
         spokenId += 1
-        guard voiceOn else { return }
+        guard settings.voiceOn else { return }
         try? AVAudioSession.sharedInstance().setActive(true)
         let u = AVSpeechUtterance(string: text)
-        u.voice = AVSpeechSynthesisVoice(language: Locale.preferredLanguages.first)
+        u.voice = settings.voice
         speech.speak(u)
     }
 
@@ -251,24 +331,32 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     static func timeText(_ s: Double) -> String {
-        let mins = Int((s / 60).rounded())
-        return mins >= 60 ? "\(mins / 60) h \(mins % 60) min" : "\(mins) min"
+        let mins = max(1, Int((s / 60).rounded()))
+        return mins >= 60 ? "\(mins / 60) hr \(mins % 60) min" : "\(mins) min"
     }
 
-    // MARK: - HTTP helper
+    // MARK: - HTTP
 
     private func post(_ url: String, body: [String: Any], fields: String,
                       done: @escaping ([String: Any]) -> Void) {
-        var req = URLRequest(url: URL(string: url)!)
-        req.httpMethod = "POST"
+        call(url, body: body, fields: fields, done: done)
+    }
+
+    /// POST when there is a body, GET otherwise. quiet = don't show errors (used while typing).
+    private func call(_ url: String, body: [String: Any]?, fields: String, quiet: Bool = false,
+                      done: @escaping ([String: Any]) -> Void) {
+        guard let u = URL(string: url) else { return }
+        var req = URLRequest(url: u)
+        req.httpMethod = body == nil ? "GET" : "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue(apiKey, forHTTPHeaderField: "X-Goog-Api-Key")
         req.setValue(fields, forHTTPHeaderField: "X-Goog-FieldMask")
         req.setValue(Bundle.main.bundleIdentifier, forHTTPHeaderField: "X-Ios-Bundle-Identifier")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        if let body { req.httpBody = try? JSONSerialization.data(withJSONObject: body) }
         URLSession.shared.dataTask(with: req) { data, resp, err in
             let json = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
             DispatchQueue.main.async {
+                if quiet, err != nil || (resp as? HTTPURLResponse)?.statusCode != 200 { return }
                 if let err {
                     self.routing = false
                     self.status = "No internet: \(err.localizedDescription)"

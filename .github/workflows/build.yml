@@ -17,7 +17,11 @@ jobs:
           set -o pipefail
           xcodebuild -project CarMaps.xcodeproj -scheme CarMaps -configuration Release \
             -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build | tail -n 200
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build > build.log 2>&1 || {
+              grep -E "error:" build.log | sort -u | head -40 | while read -r l; do echo "::error::$l"; done
+              tail -n 80 build.log
+              exit 1
+            }
       - name: Make IPA
         run: |
           mkdir -p Payload

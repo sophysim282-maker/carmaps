@@ -24,9 +24,9 @@ final class CarLink: ObservableObject {
         }
     }
 
-    /// Normal mode: draw the Google map view into a picture.
+    /// Normal mode: draw the wide car map into a picture.
     private func snapshot() {
-        let view = MapHolder.shared.mapView
+        let view = MapController.shared.carMap
         guard view.window != nil, view.bounds.width > 0,
               UIApplication.shared.applicationState == .active else { return }
         let longest = max(view.bounds.width, view.bounds.height)
