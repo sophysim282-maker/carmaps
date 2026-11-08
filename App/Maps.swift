@@ -1,21 +1,48 @@
 import SwiftUI
 import GoogleMaps
 
-/// Two Google maps: one for the iPhone, one wide (16:10) map only for the Tesla screen.
+private let routeBlue = UIColor(red: 0.10, green: 0.45, blue: 0.91, alpha: 1)
+private let routeBlueDark = UIColor(red: 0.05, green: 0.28, blue: 0.68, alpha: 1)
+private let altFill = UIColor(red: 0.69, green: 0.76, blue: 0.85, alpha: 1)
+private let altEdge = UIColor(red: 0.47, green: 0.55, blue: 0.66, alpha: 1)
+
+/// Two Google maps: the iPhone map and a wide (16:10) map only for the Tesla screen.
 final class MapController: NSObject, ObservableObject, GMSMapViewDelegate {
     static let shared = MapController()
     static let carSize = CGSize(width: 800, height: 500)
 
     @Published var follow = true
+    @Published var headingUp = true
+    weak var nav: NavModel?
 
     let phoneMap: GMSMapView
     let carMap: GMSMapView
-    private let phoneLine = GMSPolyline()
-    private let carLine = GMSPolyline()
-    private let phoneDest = GMSMarker()
-    private let carDest = GMSMarker()
-    private var lastPath: GMSPath?
+
+    private final class Layer {
+        let map: GMSMapView
+        var lines: [GMSPolyline] = []
+        var bubbles: [GMSMarker] = []
+        var pins: [GMSMarker] = []
+        let dest = GMSMarker()
+        let arrow = GMSMarker()
+        init(_ map: GMSMapView) {
+            self.map = map
+            arrow.icon = MapController.arrowImage
+            arrow.groundAnchor = CGPoint(x: 0.5, y: 0.5)
+            arrow.isFlat = true
+            arrow.zIndex = 100
+            dest.zIndex = 50
+        }
+    }
+
+    private var phone: Layer!
+    private var car: Layer!
+    private var layers: [Layer] { [phone, car] }
+    private var shownRoutes = -1
+    private var shownResults: [Place] = []
     private var night: Bool?
+    private var mapType: String?
+    private var traffic: Bool?
     private var hadFix = false
     private var wasGuiding = false
 
@@ -24,88 +51,240 @@ final class MapController: NSObject, ObservableObject, GMSMapViewDelegate {
         phoneMap = GMSMapView(frame: .zero, camera: cam)
         carMap = GMSMapView(frame: CGRect(origin: .zero, size: Self.carSize), camera: cam)
         super.init()
+        phone = Layer(phoneMap)
+        car = Layer(carMap)
         for m in [phoneMap, carMap] {
             m.isMyLocationEnabled = true
             m.settings.myLocationButton = false
-            m.isTrafficEnabled = true
             m.isBuildingsEnabled = true
+            m.settings.rotateGestures = true
+            m.settings.tiltGestures = true
         }
         carMap.settings.setAllGesturesEnabled(false)
-        phoneMap.settings.compassButton = true
+        phoneMap.settings.compassButton = false
         phoneMap.delegate = self
-        let blue = UIColor(red: 0.10, green: 0.45, blue: 0.91, alpha: 1)
-        phoneLine.strokeWidth = 7
-        carLine.strokeWidth = 9
-        phoneLine.strokeColor = blue
-        carLine.strokeColor = blue
     }
 
-    // User dragged the phone map → stop following.
+    // MARK: - Taps
+
+    func mapView(_ mapView: GMSMapView, didTap overlay: GMSOverlay) {
+        if let i = overlay.userData as? Int { nav?.selectRoute(i) }
+    }
+
+    func mapView(_ mapView: GMSMapView, didTap marker: GMSMarker) -> Bool {
+        if let p = marker.userData as? Place { nav?.select(p); return true }
+        if let i = marker.userData as? Int { nav?.selectRoute(i); return true }
+        return marker == phone.dest
+    }
+
+    func mapView(_ mapView: GMSMapView, didLongPressAt coordinate: CLLocationCoordinate2D) {
+        guard let nav, !nav.guiding else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        nav.dropPin(coordinate)
+    }
+
     func mapView(_ mapView: GMSMapView, willMove gesture: Bool) {
         if gesture && follow { DispatchQueue.main.async { self.follow = false } }
     }
 
-    // When not driving, the car shows the same place as the phone.
+    // When not driving, the Tesla shows the same place as the iPhone.
     func mapView(_ mapView: GMSMapView, didChange position: GMSCameraPosition) {
         if !wasGuiding { carMap.camera = position }
     }
 
-    func update(nav: NavModel, night isNight: Bool) {
-        if night != isNight {
-            night = isNight
-            let style = isNight ? (try? GMSMapStyle(jsonString: nightStyle)) : nil
+    // MARK: - Update from app state
+
+    func update(nav: NavModel, settings: Settings) {
+        self.nav = nav
+
+        if night != settings.isNight {
+            night = settings.isNight
+            let style = settings.isNight ? (try? GMSMapStyle(jsonString: nightStyle)) : nil
             phoneMap.mapStyle = style
             carMap.mapStyle = style
         }
+        if mapType != settings.mapType {
+            mapType = settings.mapType
+            let t: GMSMapViewType = settings.mapType == "satellite" ? .hybrid : .normal
+            phoneMap.mapType = t
+            carMap.mapType = t
+        }
+        if traffic != settings.traffic {
+            traffic = settings.traffic
+            phoneMap.isTrafficEnabled = settings.traffic
+            carMap.isTrafficEnabled = settings.traffic
+        }
 
-        if lastPath !== nav.path {
-            lastPath = nav.path
-            phoneLine.path = nav.path
-            carLine.path = nav.path
-            phoneLine.map = nav.path == nil ? nil : phoneMap
-            carLine.map = nav.path == nil ? nil : carMap
-            if let p = nav.path, !nav.guiding {
-                phoneMap.animate(with: GMSCameraUpdate.fit(GMSCoordinateBounds(path: p), withPadding: 90))
+        if shownResults != nav.results {
+            shownResults = nav.results
+            for l in layers { drawPins(l, nav.results) }
+            if !nav.results.isEmpty {
+                var b = GMSCoordinateBounds()
+                for p in nav.results { b = b.includingCoordinate(p.coordinate) }
+                phoneMap.animate(with: GMSCameraUpdate.fit(b, with: UIEdgeInsets(top: 150, left: 50, bottom: 380, right: 50)))
             }
         }
 
-        if let s = nav.selected {
-            phoneDest.position = s.coordinate
-            carDest.position = s.coordinate
-            phoneDest.title = s.name
-            if phoneDest.map == nil { phoneDest.map = phoneMap }
-            if carDest.map == nil { carDest.map = carMap }
-        } else {
-            phoneDest.map = nil
-            carDest.map = nil
+        if shownRoutes != nav.routesVersion {
+            shownRoutes = nav.routesVersion
+            for l in layers { drawRoutes(l, nav) }
+            if !nav.guiding, !nav.routes.isEmpty { overview(nav) }
         }
 
-        phoneMap.padding = nav.guiding ? UIEdgeInsets(top: 150, left: 0, bottom: 110, right: 0)
-                                       : UIEdgeInsets(top: 120, left: 0, bottom: nav.selected == nil ? 20 : 210, right: 0)
+        for l in layers {
+            if let s = nav.selected {
+                l.dest.position = s.coordinate
+                l.dest.title = s.name
+                if l.dest.map == nil { l.dest.map = l.map }
+            } else {
+                l.dest.map = nil
+            }
+            l.map.isMyLocationEnabled = !nav.guiding
+            if nav.guiding, let c = nav.carCoordinate {
+                l.arrow.position = c
+                l.arrow.rotation = nav.carBearing
+                if l.arrow.map == nil { l.arrow.map = l.map }
+            } else {
+                l.arrow.map = nil
+            }
+        }
 
-        if wasGuiding && !nav.guiding { carMap.camera = phoneMap.camera }
+        if nav.guiding {
+            phoneMap.padding = UIEdgeInsets(top: 330, left: 0, bottom: 120, right: 0)
+        } else if nav.showingDirections {
+            phoneMap.padding = UIEdgeInsets(top: 130, left: 0, bottom: 360, right: 0)
+        } else {
+            phoneMap.padding = UIEdgeInsets(top: 130, left: 0, bottom: nav.selected == nil ? 20 : 300, right: 0)
+        }
+
+        if wasGuiding && !nav.guiding { carMap.camera = phoneMap.camera; follow = true }
+        if !wasGuiding && nav.guiding { follow = true }
         wasGuiding = nav.guiding
 
         guard let loc = nav.location else { return }
         if !hadFix {
             hadFix = true
-            phoneMap.camera = GMSCameraPosition(target: loc.coordinate, zoom: 15)
+            phoneMap.camera = GMSCameraPosition(target: loc.coordinate, zoom: 16)
         }
-        if nav.guiding {
-            let bearing = loc.course >= 0 ? loc.course : carMap.camera.bearing
+        if nav.guiding, let c = nav.carCoordinate {
+            let bearing = headingUp ? nav.carBearing : 0
             if follow {
-                phoneMap.animate(to: GMSCameraPosition(target: loc.coordinate, zoom: 17.5, bearing: bearing, viewingAngle: 55))
+                phoneMap.animate(to: GMSCameraPosition(target: c, zoom: 18, bearing: bearing, viewingAngle: headingUp ? 60 : 0))
             }
-            carMap.animate(to: GMSCameraPosition(target: loc.coordinate, zoom: 16.5, bearing: bearing, viewingAngle: 50))
+            carMap.animate(to: GMSCameraPosition(target: c, zoom: 17, bearing: bearing, viewingAngle: headingUp ? 55 : 0))
         }
     }
+
+    // MARK: - Buttons
 
     func recenter(_ nav: NavModel) {
         follow = true
         if !nav.guiding, let loc = nav.location {
-            phoneMap.animate(to: GMSCameraPosition(target: loc.coordinate, zoom: 16))
+            phoneMap.animate(to: GMSCameraPosition(target: loc.coordinate, zoom: 16.5))
         }
     }
+
+    func overview(_ nav: NavModel) {
+        guard !nav.routes.isEmpty else { return }
+        if nav.guiding { follow = false }
+        var b = GMSCoordinateBounds()
+        for r in nav.routes { b = b.includingPath(r.path) }
+        if let c = nav.carCoordinate { b = b.includingCoordinate(c) }
+        phoneMap.animate(with: GMSCameraUpdate.fit(b, with: UIEdgeInsets(top: 60, left: 50, bottom: 60, right: 50)))
+        if !nav.guiding { carMap.animate(with: GMSCameraUpdate.fit(b, withPadding: 60)) }
+    }
+
+    // MARK: - Drawing
+
+    private func drawPins(_ l: Layer, _ places: [Place]) {
+        l.pins.forEach { $0.map = nil }
+        l.pins = places.map { p in
+            let m = GMSMarker(position: p.coordinate)
+            m.title = p.name
+            m.userData = p
+            m.map = l.map
+            return m
+        }
+    }
+
+    private func drawRoutes(_ l: Layer, _ nav: NavModel) {
+        l.lines.forEach { $0.map = nil }
+        l.bubbles.forEach { $0.map = nil }
+        l.lines = []
+        l.bubbles = []
+        let order = nav.routes.indices.filter { $0 != nav.routeIndex }
+            + (nav.routes.indices.contains(nav.routeIndex) ? [nav.routeIndex] : [])
+        for i in order {
+            let r = nav.routes[i]
+            let sel = i == nav.routeIndex
+            let edge = GMSPolyline(path: r.path)
+            edge.strokeWidth = sel ? 11 : 9
+            edge.strokeColor = sel ? routeBlueDark : altEdge
+            edge.zIndex = sel ? 12 : 2
+            let fill = GMSPolyline(path: r.path)
+            fill.strokeWidth = sel ? 7.5 : 5.5
+            fill.strokeColor = sel ? routeBlue : altFill
+            fill.zIndex = sel ? 13 : 3
+            for line in [edge, fill] {
+                line.isTappable = true
+                line.userData = i
+                line.map = l.map
+                l.lines.append(line)
+            }
+            if !nav.guiding {
+                let mid = r.path.coordinate(at: r.path.count() / 2)
+                let b = GMSMarker(position: mid)
+                b.icon = Self.bubble(NavModel.timeText(r.seconds), selected: sel)
+                b.groundAnchor = CGPoint(x: 0.5, y: 1)
+                b.userData = i
+                b.zIndex = sel ? 40 : 30
+                b.map = l.map
+                l.bubbles.append(b)
+            }
+        }
+    }
+
+    static func bubble(_ text: String, selected: Bool) -> UIImage {
+        let font = UIFont.systemFont(ofSize: 15, weight: .bold)
+        let size = (text as NSString).size(withAttributes: [.font: font])
+        let w = ceil(size.width) + 20, h = ceil(size.height) + 10
+        return UIGraphicsImageRenderer(size: CGSize(width: w, height: h + 7)).image { _ in
+            let bg: UIColor = selected ? routeBlue : .white
+            let shape = UIBezierPath(roundedRect: CGRect(x: 0, y: 0, width: w, height: h), cornerRadius: 7)
+            shape.move(to: CGPoint(x: w / 2 - 7, y: h))
+            shape.addLine(to: CGPoint(x: w / 2, y: h + 7))
+            shape.addLine(to: CGPoint(x: w / 2 + 7, y: h))
+            bg.setFill()
+            shape.fill()
+            if !selected {
+                UIColor(white: 0.75, alpha: 1).setStroke()
+                shape.lineWidth = 1
+                shape.stroke()
+            }
+            (text as NSString).draw(at: CGPoint(x: 10, y: 5),
+                                    withAttributes: [.font: font, .foregroundColor: selected ? UIColor.white : UIColor.black])
+        }
+    }
+
+    /// Blue navigation arrow with white edge.
+    static let arrowImage: UIImage = {
+        UIGraphicsImageRenderer(size: CGSize(width: 48, height: 48)).image { ctx in
+            let c = ctx.cgContext
+            c.setShadow(offset: CGSize(width: 0, height: 2), blur: 4, color: UIColor.black.withAlphaComponent(0.4).cgColor)
+            let p = UIBezierPath()
+            p.move(to: CGPoint(x: 24, y: 4))
+            p.addLine(to: CGPoint(x: 41, y: 42))
+            p.addLine(to: CGPoint(x: 24, y: 33))
+            p.addLine(to: CGPoint(x: 7, y: 42))
+            p.close()
+            p.lineJoin = .round
+            p.lineWidth = 4
+            UIColor.white.setStroke()
+            p.stroke()
+            routeBlue.setFill()
+            p.fill()
+        }
+    }()
 }
 
 struct PhoneMap: UIViewRepresentable {
@@ -114,11 +293,11 @@ struct PhoneMap: UIViewRepresentable {
 
     func makeUIView(context: Context) -> GMSMapView { MapController.shared.phoneMap }
     func updateUIView(_ uiView: GMSMapView, context: Context) {
-        MapController.shared.update(nav: nav, night: settings.isNight)
+        MapController.shared.update(nav: nav, settings: settings)
     }
 }
 
-/// Sits behind the phone map (you never see it on the phone). Pictures of it go to the Tesla.
+/// Sits behind the phone map (never seen on the phone). Pictures of it go to the Tesla.
 struct CarMap: UIViewRepresentable {
     func makeUIView(context: Context) -> GMSMapView { MapController.shared.carMap }
     func updateUIView(_ uiView: GMSMapView, context: Context) {}

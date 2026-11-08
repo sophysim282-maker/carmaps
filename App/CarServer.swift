@@ -115,11 +115,16 @@ private let carPage = """
 .night{--card:#202124;--text:#e8eaed;--muted:#9aa0a6;--eta:#81c995}
 html,body{margin:0;height:100%;background:#000;font-family:Roboto,-apple-system,"Segoe UI",sans-serif;overflow:hidden}
 #map{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;visibility:hidden}
-#turn{position:fixed;top:20px;left:20px;width:min(520px,44vw);background:#0d7a45;color:#fff;border-radius:20px;
+#turn{position:fixed;top:20px;left:20px;width:min(520px,44vw);background:#0d615a;color:#fff;border-radius:20px;
  padding:20px 24px;display:none;gap:20px;align-items:center;box-shadow:0 6px 24px rgba(0,0,0,.45)}
 #turn svg{width:84px;height:84px;flex:none}
 #dist{font-size:46px;font-weight:700;line-height:1.05}
 #text{font-size:26px;font-weight:500;margin-top:4px;line-height:1.2}
+#then{position:fixed;left:20px;background:#084a45;color:#fff;border-radius:16px;padding:10px 20px;
+ font-size:24px;font-weight:600;display:none;align-items:center;gap:10px;box-shadow:0 6px 24px rgba(0,0,0,.4)}
+#then svg{width:34px;height:34px}
+#wx{position:fixed;top:20px;right:20px;background:var(--card);color:var(--text);border-radius:14px;padding:10px 16px;
+ font-size:22px;font-weight:600;display:none;box-shadow:0 4px 14px rgba(0,0,0,.35)}
 #eta{position:fixed;bottom:20px;left:20px;background:var(--card);color:var(--text);border-radius:20px;
  padding:14px 26px;display:none;box-shadow:0 6px 24px rgba(0,0,0,.4)}
 #etaTime{font-size:36px;font-weight:700;color:var(--eta)}
@@ -133,6 +138,9 @@ button{font:inherit;font-size:19px;border:0;border-radius:14px;padding:14px 18px
 <img id="map" alt="">
 <div id="turn"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"
  stroke-linejoin="round"><g id="icon"></g></svg><div><div id="dist"></div><div id="text"></div></div></div>
+<div id="then">Then <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"
+ stroke-linejoin="round"><g id="thenIcon"></g></svg></div>
+<div id="wx"></div>
 <div id="eta"><div id="etaTime"></div><div id="etaSub"></div></div>
 <div id="btns"><button id="voice">🔇 Voice off</button><button id="fs">⛶ Full screen</button></div>
 <script>
@@ -166,7 +174,12 @@ async function poll(){
     if(on){
       $('icon').innerHTML=ICON[s.maneuver]||ST; $('dist').textContent=s.distance; $('text').textContent=s.instruction;
       $('etaTime').textContent=s.eta; $('etaSub').textContent=s.remaining+' · '+s.arrival;
+      const t=$('turn').getBoundingClientRect();
+      $('then').style.top=(t.bottom+8)+'px';
     }
+    $('then').style.display=(on&&s.then)?'flex':'none';
+    if(s.then) $('thenIcon').innerHTML=ICON[s.then]||ST;
+    $('wx').style.display=s.weather?'block':'none'; $('wx').textContent='🌤 '+(s.weather||'');
     if(lastSpoken<0) lastSpoken=s.spokenId;
     if(voice && s.spokenId!==lastSpoken) speak(s.spokenText);
     lastSpoken=s.spokenId;

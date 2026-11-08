@@ -10,7 +10,7 @@ packages:
 settings:
   base:
     CODE_SIGN_STYLE: Automatic
-    MARKETING_VERSION: "1.0"
+    MARKETING_VERSION: "2.0"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
 targets:
@@ -29,6 +29,8 @@ targets:
         UILaunchScreen: {}
         NSLocationWhenInUseUsageDescription: Car Maps uses your location for navigation.
         NSLocalNetworkUsageDescription: Car Maps sends the map to your car over the hotspot Wi-Fi.
+        NSMicrophoneUsageDescription: Car Maps uses the microphone for voice search.
+        NSSpeechRecognitionUsageDescription: Car Maps turns your voice into a search.
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
