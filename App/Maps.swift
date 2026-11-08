@@ -277,7 +277,7 @@ final class MapController: NSObject, ObservableObject, GMSMapViewDelegate {
             p.addLine(to: CGPoint(x: 24, y: 33))
             p.addLine(to: CGPoint(x: 7, y: 42))
             p.close()
-            p.lineJoin = .round
+            p.lineJoinStyle = .round
             p.lineWidth = 4
             UIColor.white.setStroke()
             p.stroke()
