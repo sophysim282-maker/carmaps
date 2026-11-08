@@ -63,6 +63,23 @@ h2{margin:0;font-size:28px;font-weight:600;flex:1}
 .round.on{background:var(--teal);color:#fff}
 #recenter{display:none;width:auto;padding:0 26px;font-size:21px;font-weight:600;color:var(--tealT)}
 #status{position:fixed;top:20px;left:50%;transform:translateX(-50%);padding:10px 18px;border-radius:16px;font-size:18px;display:none}
+
+svg.i{flex:none;vertical-align:middle}
+.chip{display:flex;align-items:center;gap:8px;font-weight:500;padding:12px 20px}
+.btn{display:inline-flex;align-items:center;gap:10px;padding:16px 26px;font-size:21px}
+.row{font-size:21px;padding:16px 22px}
+.row .sub{font-size:16px}
+.row .ic{width:48px;height:48px;border-radius:24px;color:var(--muted)}
+.x{display:flex;align-items:center;justify-content:center;width:50px;height:50px;border-radius:25px}
+.tab{display:flex;align-items:center;gap:8px;font-size:21px}
+#searchBox{height:72px;border-radius:36px}
+#searchBox .pin{color:#d93025;display:flex}
+#q{font-size:24px}
+h2{font-size:30px}
+.line{font-size:20px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.round{width:72px;height:72px;border-radius:36px}
+#recenter{gap:10px}
+#panel{width:470px}
 </style></head><body>
 <img id="map" alt="" draggable="false">
 <div id="msg">Open Car Maps on your iPhone…</div>
@@ -76,13 +93,13 @@ h2{margin:0;font-size:28px;font-weight:600;flex:1}
 <div id="wx" class="card"></div>
 <div id="status" class="card"></div>
 <div id="tools">
- <button class="round" id="recenter" data-a="recenter">➤ Re-centre</button>
- <button class="round" id="overview" data-a="overview" title="Route overview">⤢</button>
- <button class="round" data-a="layer" id="layer" title="Satellite">🛰</button>
- <button class="round" id="carVoice" title="Voice on car speakers">🔇</button>
- <button class="round" data-a="zoom" data-d="1">＋</button>
- <button class="round" data-a="zoom" data-d="-1">－</button>
- <button class="round" id="fs" title="Full screen">⛶</button>
+ <button class="round" id="recenter" data-a="recenter"></button>
+ <button class="round" id="overview" data-a="overview" title="Route overview"></button>
+ <button class="round" data-a="layer" id="layer" title="Satellite"></button>
+ <button class="round" id="carVoice" title="Voice on car speakers"></button>
+ <button class="round" data-a="zoom" data-d="1" id="zin"></button>
+ <button class="round" data-a="zoom" data-d="-1" id="zout"></button>
+ <button class="round" id="fs" title="Full screen"></button>
 </div>
 <script>
 const $=id=>document.getElementById(id), map=$('map');
@@ -98,9 +115,45 @@ const AR='<path d="M6 21V4"/><path d="M6 4h11l-2.5 4L17 12H6"/>';
 const ICON={TURN_LEFT:L,TURN_SHARP_LEFT:L,TURN_RIGHT:R,TURN_SHARP_RIGHT:R,TURN_SLIGHT_LEFT:SL,RAMP_LEFT:SL,FORK_LEFT:SL,
  TURN_SLIGHT_RIGHT:SR,RAMP_RIGHT:SR,FORK_RIGHT:SR,UTURN_LEFT:UT,UTURN_RIGHT:UT,ROUNDABOUT_LEFT:RB,ROUNDABOUT_RIGHT:RB,
  ROUNDABOUT_CLOCKWISE:RB,ROUNDABOUT_COUNTERCLOCKWISE:RB,ARRIVE:AR};
-const CATS=[['🍴','Restaurants','restaurants'],['☕','Coffee','coffee'],['⛽','Gas','gas station'],['⚡','Charging','EV charging station'],
- ['🛏','Hotels','hotels'],['🛒','Groceries','supermarket']];
-const MODES=[['DRIVE','🚗'],['TWO_WHEELER','🛵'],['WALK','🚶']];
+const IC={
+ search:'<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
+ pin:'<path d="M12 21s-6.5-6.2-6.5-11a6.5 6.5 0 0 1 13 0c0 4.8-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.4"/>',
+ home:'<path d="M4 11l8-7 8 7"/><path d="M6 9.5V20h12V9.5"/><path d="M10 20v-5h4v5"/>',
+ work:'<rect x="3.5" y="7.5" width="17" height="12" rx="2"/><path d="M9 7.5V5.5a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 5.5v2"/><path d="M3.5 12.5h17"/>',
+ star:'<path d="M12 4l2.5 5.2 5.6.7-4.1 3.9 1 5.6L12 16.7 7 19.4l1-5.6-4.1-3.9 5.6-.7z"/>',
+ clock:'<circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 2"/>',
+ close:'<path d="M6 6l12 12M18 6L6 18"/>',
+ back:'<path d="M19 12H5"/><path d="M11 6l-6 6 6 6"/>',
+ dir:'<path d="M12 2.8l9.2 9.2-9.2 9.2L2.8 12z"/><path d="M9 14v-2.5a1.5 1.5 0 0 1 1.5-1.5H15"/><path d="M13 8l2 2-2 2"/>',
+ nav:'<path d="M12 3l7 17-7-4-7 4z"/>',
+ car:'<path d="M5 16v2.5M19 16v2.5"/><path d="M4 16h16v-4l-2-5H6l-2 5z"/><path d="M4 12h16"/><circle cx="7.5" cy="14" r=".6"/><circle cx="16.5" cy="14" r=".6"/>',
+ moto:'<circle cx="6" cy="16.5" r="3"/><circle cx="18" cy="16.5" r="3"/><path d="M6 16.5l4-6h4l4 6"/><path d="M14 10.5l-1.5-4H10"/>',
+ walk:'<circle cx="13" cy="4.5" r="1.8"/><path d="M10 21l2-6 2.5 2.5V21"/><path d="M8 11l3-3.5 3 1.5 1.5 3 2.5 1"/><path d="M12 15l-.5-6"/>',
+ layers:'<path d="M12 4l9 5-9 5-9-5z"/><path d="M3 14l9 5 9-5"/>',
+ plus:'<path d="M12 5v14M5 12h14"/>',
+ minus:'<path d="M5 12h14"/>',
+ full:'<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+ volOn:'<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
+ volOff:'<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/>',
+ locate:'<circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="2.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3"/>',
+ route:'<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h7.5a3.5 3.5 0 0 0 0-7h-7a3.5 3.5 0 0 1 0-7H16"/>',
+ food:'<path d="M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10"/><path d="M17 21V3c-2 1.5-3 4-3 7v3h3"/>',
+ coffee:'<path d="M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M16 10.5h1.5a2.5 2.5 0 0 1 0 5H16"/><path d="M8 3v3M12 3v3"/>',
+ gas:'<rect x="4" y="4" width="9" height="16" rx="1.5"/><path d="M4 10h9"/><path d="M13 8l3.5 2.5V17a1.5 1.5 0 0 0 3 0V8l-2-2"/>',
+ bolt:'<path d="M13 3L5 13.5h6L10 21l8-10.5h-6z"/>',
+ bed:'<path d="M3 19V6M3 15h18v4"/><path d="M21 15v-3a3 3 0 0 0-3-3h-7v6"/><circle cx="7" cy="11.5" r="1.8"/>',
+ cart:'<path d="M3 4h2.5l2.2 10.5h10.5L20.5 7H7"/><circle cx="9" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/>',
+};
+function svg(n,size){ return '<svg class="i" width="'+(size||24)+'" height="'+(size||24)+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+(IC[n]||'')+'</svg>'; }
+const CATS=[['food','Restaurants','restaurants'],['coffee','Coffee','coffee'],['gas','Gas','gas station'],['bolt','Charging','EV charging station'],
+ ['bed','Hotels','hotels'],['cart','Groceries','supermarket']];
+const MODES=[['DRIVE','car'],['TWO_WHEELER','moto'],['WALK','walk']];
+
+/* ---------- icons on the round buttons ---------- */
+$('recenter').innerHTML=svg('nav',26)+'<span>Re-centre</span>'; $('overview').innerHTML=svg('route',30);
+$('layer').innerHTML=svg('layers',30); $('carVoice').innerHTML=svg('volOff',30); $('zin').innerHTML=svg('plus',30);
+$('zout').innerHTML=svg('minus',30); $('fs').innerHTML=svg('full',28);
+document.querySelector('#eta .btn').innerHTML='Exit';
 
 /* ---------- live map pictures ---------- */
 function connect(){ map.src='/stream?t='+Date.now(); }
@@ -142,63 +195,63 @@ map.addEventListener('pointerup',endDrag); map.addEventListener('pointercancel',
 
 /* ---------- side panel (search, results, place, directions) ---------- */
 let S={}, lastSig='', typed='', typeT=null;
-function row(ic,title,sub,attrs){ return '<div class="row" '+attrs+'><div class="ic">'+ic+'</div><div class="grow"><div class="t">'+esc(title)+
+function row(ic,title,sub,attrs){ return '<div class="row" '+attrs+'><div class="ic">'+svg(ic,24)+'</div><div class="grow"><div class="t">'+esc(title)+
   '</div>'+(sub?'<div class="sub">'+esc(sub)+'</div>':'')+'</div></div>'; }
 function searchBox(){
-  return '<div id="searchBox" class="card"><span class="pin">📍</span><input id="q" placeholder="Search here" autocomplete="off" value="'+esc(typed)+'">'+
-   (typed?'<button class="x" id="qx">✕</button>':'')+'</div>';
+  return '<div id="searchBox" class="card"><span class="pin">'+svg('pin',30)+'</span><input id="q" placeholder="Search here" autocomplete="off" value="'+esc(typed)+'">'+
+   (typed?'<button class="x" id="qx">'+svg('close',22)+'</button>':'')+'</div>';
 }
 function homeHTML(){
   let h=searchBox();
   if(typed){
-    h+='<div class="card box">'+row('🔍','Search “'+typed+'”','','data-a="search" data-q="'+esc(typed)+'"');
-    (S.suggestions||[]).forEach(s=>{ h+=row('📍',s.main,s.secondary,'data-a="suggest" data-id="'+esc(s.id)+'"'); });
+    h+='<div class="card box">'+row('search','Search “'+typed+'”','','data-a="search" data-q="'+esc(typed)+'"');
+    (S.suggestions||[]).forEach(s=>{ h+=row('pin',s.main,s.secondary,'data-a="suggest" data-id="'+esc(s.id)+'"'); });
     return h+'</div>';
   }
-  h+='<div class="chips">'+CATS.map(c=>'<button class="chip" data-a="search" data-q="'+c[2]+'">'+c[0]+' '+c[1]+'</button>').join('')+'</div>';
+  h+='<div class="chips">'+CATS.map(c=>'<button class="chip" data-a="search" data-q="'+c[2]+'">'+svg(c[0],22)+'<span>'+c[1]+'</span></button>').join('')+'</div>';
   h+='<div class="card box">';
-  h+=row('🏠','Home',S.home||'Set it on the iPhone: Save → Home',S.home?'data-a="home"':'');
-  h+=row('💼','Work',S.work||'Set it on the iPhone: Save → Work',S.work?'data-a="work"':'');
-  (S.favorites||[]).forEach((f,i)=>{ h+=row('⭐',f.name,'','data-a="fav" data-i="'+i+'"'); });
+  h+=row('home','Home',S.home||'Set it on the iPhone: Save → Home',S.home?'data-a="home"':'');
+  h+=row('work','Work',S.work||'Set it on the iPhone: Save → Work',S.work?'data-a="work"':'');
+  (S.favorites||[]).forEach((f,i)=>{ h+=row('star',f.name,'','data-a="fav" data-i="'+i+'"'); });
   if((S.recents||[]).length){
     h+='<div class="head">Recent</div>';
-    S.recents.forEach((r,i)=>{ h+=row('🕘',r.name,r.address,'data-a="recent" data-i="'+i+'"'); });
+    S.recents.forEach((r,i)=>{ h+=row('clock',r.name,r.address,'data-a="recent" data-i="'+i+'"'); });
   }
   return h+'</div>';
 }
 function resultsHTML(){
   let h=searchBox()+'<div class="card box"><div class="sheet" style="padding-bottom:4px"><div class="top"><h2>Results</h2>'+
-    '<button class="x" data-a="close">✕</button></div></div>';
-  (S.results||[]).forEach((r,i)=>{ h+=row('📍',r.name,r.address,'data-a="result" data-i="'+i+'"'); });
+    '<button class="x" data-a="close">'+svg('close',22)+'</button></div></div>';
+  (S.results||[]).forEach((r,i)=>{ h+=row('pin',r.name,r.address,'data-a="result" data-i="'+i+'"'); });
   return h+'</div>';
 }
 function stars(r){ let s=''; for(let i=0;i<5;i++) s+= r-i>=0.75?'★':(r-i>=0.25?'⯪':'☆'); return s; }
 function placeHTML(){
   const p=S.place||{};
-  let h='<div class="card sheet"><div class="top"><h2>'+esc(p.name)+'</h2><button class="x" data-a="close">✕</button></div>';
+  let h='<div class="card sheet"><div class="top"><h2>'+esc(p.name)+'</h2><button class="x" data-a="close">'+svg('close',22)+'</button></div>';
   let l1=[];
   if(p.rating) l1.push(p.rating.toFixed(1)+' <span class="stars">'+stars(p.rating)+'</span> <span class="muted">('+p.count+')</span>');
-  if(p.drive) l1.push('🚗 '+esc(p.drive));
+  if(p.drive) l1.push(svg('car',20)+' '+esc(p.drive));
   if(l1.length) h+='<div class="line">'+l1.join(' · ')+'</div>';
   if(p.type) h+='<div class="line muted">'+esc(p.type)+'</div>';
   if(p.open!==undefined) h+='<div class="line"><span style="color:'+(p.open?'var(--eta)':'#d93025')+'">'+(p.open?'Open':'Closed')+'</span>'+
      (p.hours?' <span class="muted">· '+esc(p.hours)+'</span>':'')+'</div>';
   h+='<div class="line muted">'+esc(p.address)+'</div>';
-  h+='<div class="btns"><button class="btn fill" data-a="directions">↱ Directions</button><button class="btn" data-a="start">➤ Start</button></div>';
+  h+='<div class="btns"><button class="btn fill" data-a="directions">'+svg('dir',24)+'Directions</button><button class="btn" data-a="start">'+svg('nav',22)+'Start</button></div>';
   return h+'</div>';
 }
 function directionsHTML(){
   const p=S.place||{}, m=S.mode||'DRIVE';
   const title={DRIVE:'Drive',TWO_WHEELER:'Motorbike',WALK:'Walk'}[m]||'Drive';
-  let h='<div class="card sheet"><div class="top"><button class="x" data-a="back">←</button><h2>'+title+'</h2><button class="x" data-a="close">✕</button></div>';
-  h+='<div class="line"><span style="color:#1a73e8">●</span> Your location &nbsp;→&nbsp; 📍 '+esc(p.name)+'</div>';
-  h+='<div class="tabs">'+MODES.map(x=>'<button class="tab'+(x[0]===m?' on':'')+'" data-a="mode" data-m="'+x[0]+'">'+x[1]+' '+
+  let h='<div class="card sheet"><div class="top"><button class="x" data-a="back">'+svg('back',22)+'</button><h2>'+title+'</h2><button class="x" data-a="close">'+svg('close',22)+'</button></div>';
+  h+='<div class="line"><span style="color:#1a73e8">●</span> Your location &nbsp;→&nbsp; <span style="color:#d93025">'+svg('pin',20)+'</span> '+esc(p.name)+'</div>';
+  h+='<div class="tabs">'+MODES.map(x=>'<button class="tab'+(x[0]===m?' on':'')+'" data-a="mode" data-m="'+x[0]+'">'+svg(x[1],26)+' '+
      esc((S.modes||{})[x[0]]||'…')+'</button>').join('')+'</div>';
   const rs=S.routes||[];
   if(!rs.length) h+='<div class="line muted">'+esc(S.status||'Finding routes…')+'</div>';
   rs.forEach((r,i)=>{ h+='<div class="route'+(r.sel?' on':'')+(i===0?' best':'')+'" data-a="route" data-i="'+i+'"><div class="tt">'+esc(r.time)+
      '</div><div class="muted">Arrive '+esc(r.arrive)+(i===0?' · Best route':'')+' · '+esc(r.dist)+'</div></div>'; });
-  h+='<div class="btns"><button class="btn fill" data-a="start">➤ Start</button></div>';
+  h+='<div class="btns"><button class="btn fill" data-a="start">'+svg('nav',22)+'Start</button></div>';
   return h+'</div>';
 }
 function renderPanel(){
@@ -223,7 +276,7 @@ document.addEventListener('click',e=>{ const b=e.target.closest('[data-a="search
 /* ---------- voice on car speakers ---------- */
 let carVoice=false,lastSpoken=-1,lang='en';
 function speak(t){ if(!window.speechSynthesis) return; const u=new SpeechSynthesisUtterance(t); u.lang=lang; speechSynthesis.speak(u); }
-$('carVoice').onclick=()=>{ carVoice=!carVoice; $('carVoice').textContent=carVoice?'🔊':'🔇'; $('carVoice').classList.toggle('on',carVoice); if(carVoice) speak('OK'); };
+$('carVoice').onclick=()=>{ carVoice=!carVoice; $('carVoice').innerHTML=svg(carVoice?'volOn':'volOff',30); $('carVoice').classList.toggle('on',carVoice); if(carVoice) speak('OK'); };
 $('fs').onclick=()=>{const d=document.documentElement;(d.requestFullscreen||d.webkitRequestFullscreen||function(){}).call(d)};
 
 /* ---------- poll the iPhone ---------- */
@@ -245,7 +298,7 @@ async function poll(){
     }
     $('then').style.display=(on&&S.then)?'flex':'none';
     if(S.then) $('thenIcon').innerHTML=ICON[S.then]||ST;
-    $('wx').style.display=S.weather?'block':'none'; $('wx').textContent='🌤 '+(S.weather||'');
+    $('wx').style.display=S.weather?'block':'none'; $('wx').textContent='☀ '+(S.weather||'');
     $('layer').classList.toggle('on',S.mapType==='satellite');
     $('status').style.display=(S.status&&S.screen!=='directions')?'block':'none'; $('status').textContent=S.status||'';
     renderPanel();
