@@ -13,6 +13,8 @@ final class MapController: NSObject, ObservableObject, GMSMapViewDelegate {
 
     @Published var follow = true
     @Published var headingUp = true
+    @Published var carFollow = true
+    private var carZoom: Float = 17
     weak var nav: NavModel?
 
     let phoneMap: GMSMapView
@@ -157,8 +159,8 @@ final class MapController: NSObject, ObservableObject, GMSMapViewDelegate {
             phoneMap.padding = UIEdgeInsets(top: 130, left: 0, bottom: nav.selected == nil ? 20 : 300, right: 0)
         }
 
-        if wasGuiding && !nav.guiding { carMap.camera = phoneMap.camera; follow = true }
-        if !wasGuiding && nav.guiding { follow = true }
+        if wasGuiding && !nav.guiding { carMap.camera = phoneMap.camera; follow = true; carFollow = true }
+        if !wasGuiding && nav.guiding { follow = true; carFollow = true }
         wasGuiding = nav.guiding
 
         guard let loc = nav.location else { return }
@@ -171,7 +173,9 @@ final class MapController: NSObject, ObservableObject, GMSMapViewDelegate {
             if follow {
                 phoneMap.animate(to: GMSCameraPosition(target: c, zoom: 18, bearing: bearing, viewingAngle: headingUp ? 60 : 0))
             }
-            carMap.animate(to: GMSCameraPosition(target: c, zoom: 17, bearing: bearing, viewingAngle: headingUp ? 55 : 0))
+            if carFollow {
+                carMap.animate(to: GMSCameraPosition(target: c, zoom: carZoom, bearing: bearing, viewingAngle: headingUp ? 55 : 0))
+            }
         }
     }
 
@@ -179,6 +183,7 @@ final class MapController: NSObject, ObservableObject, GMSMapViewDelegate {
 
     func recenter(_ nav: NavModel) {
         follow = true
+        carFollow = true
         if !nav.guiding, let loc = nav.location {
             phoneMap.animate(to: GMSCameraPosition(target: loc.coordinate, zoom: 16.5))
         }
@@ -186,12 +191,40 @@ final class MapController: NSObject, ObservableObject, GMSMapViewDelegate {
 
     func overview(_ nav: NavModel) {
         guard !nav.routes.isEmpty else { return }
-        if nav.guiding { follow = false }
+        if nav.guiding { follow = false; carFollow = false }
         var b = GMSCoordinateBounds()
         for r in nav.routes { b = b.includingPath(r.path) }
         if let c = nav.carCoordinate { b = b.includingCoordinate(c) }
         phoneMap.animate(with: GMSCameraUpdate.fit(b, with: UIEdgeInsets(top: 60, left: 50, bottom: 60, right: 50)))
-        if !nav.guiding { carMap.animate(with: GMSCameraUpdate.fit(b, withPadding: 60)) }
+        carMap.animate(with: GMSCameraUpdate.fit(b, withPadding: 60))
+    }
+
+    // MARK: - Control from the Tesla screen
+
+    func zoom(_ d: Float, guiding: Bool) {
+        if guiding {
+            carZoom = max(12, min(20, carZoom + d))
+            if !carFollow { carMap.animate(toZoom: carMap.camera.zoom + d) }
+        } else {
+            phoneMap.animate(toZoom: phoneMap.camera.zoom + d)
+        }
+    }
+
+    /// fx, fy = how far the finger moved, as a part of the car map width/height.
+    func pan(fx: Double, fy: Double, guiding: Bool) {
+        let w = Double(carMap.bounds.width), h = Double(carMap.bounds.height)
+        let target = carMap.projection.coordinate(for: CGPoint(x: w / 2 - fx * w, y: h / 2 - fy * h))
+        if guiding {
+            carFollow = false
+            carMap.moveCamera(GMSCameraUpdate.setTarget(target))
+        } else {
+            follow = false
+            phoneMap.moveCamera(GMSCameraUpdate.setTarget(target))
+        }
+    }
+
+    func carCoordinate(fx: Double, fy: Double) -> CLLocationCoordinate2D {
+        carMap.projection.coordinate(for: CGPoint(x: fx * Double(carMap.bounds.width), y: fy * Double(carMap.bounds.height)))
     }
 
     // MARK: - Drawing

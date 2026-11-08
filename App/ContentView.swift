@@ -244,24 +244,8 @@ struct ContentView: View {
     private func startCar() {
         UIApplication.shared.isIdleTimerDisabled = true
         vpn.turnOn()   // gives the iPhone the address 240.3.3.3 for the Tesla
-        car.start { [weak nav] in
-            guard let nav else { return [:] }
-            let s = Settings.shared
-            return [
-                "navigating": nav.guiding,
-                "instruction": nav.nextInstruction,
-                "maneuver": nav.nextManeuver,
-                "then": nav.thenManeuver ?? "",
-                "distance": NavModel.distanceText(nav.distanceToNext),
-                "remaining": NavModel.distanceText(nav.remainingMeters),
-                "eta": NavModel.timeText(nav.remainingSeconds),
-                "arrival": nav.arrivalText,
-                "weather": nav.weatherTemp ?? "",
-                "night": s.isNight,
-                "lang": s.language,
-                "spokenText": nav.spokenText,
-                "spokenId": nav.spokenId,
-            ]
-        }
+        let nav = self.nav
+        car.server.onCommand = { [weak nav] action, params in nav?.handleCar(action, params) }
+        car.start { [weak nav] in nav?.carState() ?? [:] }
     }
 }
