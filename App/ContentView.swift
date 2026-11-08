@@ -60,6 +60,7 @@ struct ContentView: View {
     @ObservedObject var maps = MapController.shared
     @StateObject private var car = CarLink()
     @StateObject private var voice = VoiceSearch()
+    @StateObject private var vpn = CarVPN()
     @State private var searchOpen = false
     @State private var voiceStart = false
     @State private var forDirections = false
@@ -97,7 +98,7 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.2), value: searchOpen)
         .preferredColorScheme(settings.isNight ? .dark : .light)
         .onAppear(perform: startCar)
-        .sheet(isPresented: $showSettings) { SettingsView(settings: settings, car: car) }
+        .sheet(isPresented: $showSettings) { SettingsView(settings: settings, car: car, vpn: vpn) }
         .sheet(isPresented: $showLayers) {
             LayersSheet(settings: settings).presentationDetents([.height(300)])
         }
@@ -221,7 +222,8 @@ struct ContentView: View {
         Button { showSettings = true } label: {
             HStack(spacing: 6) {
                 Circle().fill(car.carConnected ? Color.green : Color.orange).frame(width: 9, height: 9)
-                Text(car.carConnected ? "Tesla connected" : "Tesla not connected").font(.caption.weight(.semibold))
+                Text(car.carConnected ? "Tesla connected" : (vpn.isOn ? "Tesla: \(CarVPN.address):8080" : "Tesla link off"))
+                    .font(.caption.weight(.semibold))
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
             .background(Capsule().fill(Color(.systemBackground)).shadow(radius: 3))
@@ -241,6 +243,7 @@ struct ContentView: View {
 
     private func startCar() {
         UIApplication.shared.isIdleTimerDisabled = true
+        vpn.turnOn()   // gives the iPhone the address 240.3.3.3 for the Tesla
         car.start { [weak nav] in
             guard let nav else { return [:] }
             let s = Settings.shared

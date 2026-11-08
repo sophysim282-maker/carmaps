@@ -681,6 +681,7 @@ struct LayersSheet: View {
 struct SettingsView: View {
     @ObservedObject var settings: Settings
     @ObservedObject var car: CarLink
+    @ObservedObject var vpn: CarVPN
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -723,6 +724,13 @@ struct SettingsView: View {
                     }
                 }
                 Section("Tesla") {
+                    Toggle(isOn: Binding(get: { vpn.isOn }, set: { $0 ? vpn.turnOn() : vpn.turnOff() })) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Tesla link (\(CarVPN.address))")
+                            Text(vpn.statusText).font(.caption).foregroundColor(.secondary)
+                        }
+                    }
+                    if let e = vpn.error { Text(e).font(.footnote).foregroundColor(.red) }
                     HStack {
                         Circle().fill(car.carConnected ? Color.green : Color.orange).frame(width: 10, height: 10)
                         Text(car.carConnected ? "Tesla connected" : "Tesla not connected")

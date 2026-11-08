@@ -31,3 +31,11 @@ jobs:
         with:
           name: CarMaps-ipa
           path: CarMaps.ipa
+      - name: Pack Xcode project (open on a Mac, Run with your Apple developer team)
+        run: |
+          rm -rf Payload build build.log CarMaps.ipa
+          cd .. && zip -qry CarMaps-Xcode.zip carmaps -x "carmaps/.git/*" && mv CarMaps-Xcode.zip carmaps/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CarMaps-Xcode-project
+          path: CarMaps-Xcode.zip

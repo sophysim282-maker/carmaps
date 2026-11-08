@@ -1,6 +1,6 @@
 name: CarMaps
 options:
-  bundleIdPrefix: com.carmaps
+  bundleIdPrefix: com.sophysim282
   deploymentTarget:
     iOS: "16.0"
 packages:
@@ -10,7 +10,7 @@ packages:
 settings:
   base:
     CODE_SIGN_STYLE: Automatic
-    MARKETING_VERSION: "2.0"
+    MARKETING_VERSION: "2.1"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.0"
 targets:
@@ -21,7 +21,12 @@ targets:
     dependencies:
       - package: GoogleMaps
         product: GoogleMaps
+      - target: Tunnel
     scheme: {}
+    entitlements:
+      path: App/CarMaps.entitlements
+      properties:
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
     info:
       path: App/Info.plist
       properties:
@@ -37,5 +42,24 @@ targets:
           - UIInterfaceOrientationLandscapeRight
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.carmaps.app
+        PRODUCT_BUNDLE_IDENTIFIER: com.sophysim282.carmaps
+        TARGETED_DEVICE_FAMILY: "1"
+  Tunnel:
+    type: app-extension
+    platform: iOS
+    sources: [Tunnel]
+    entitlements:
+      path: Tunnel/Tunnel.entitlements
+      properties:
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+    info:
+      path: Tunnel/Info.plist
+      properties:
+        CFBundleDisplayName: Car Maps Tunnel
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sophysim282.carmaps.tunnel
         TARGETED_DEVICE_FAMILY: "1"

@@ -99,5 +99,7 @@ func carAddresses() -> [String] {
         }
     }
     if !result.contains("http://172.20.10.1:8080") { result.insert("http://172.20.10.1:8080", at: 0) }
+    result.removeAll { $0.contains(CarVPN.address) }
+    result.insert("http://\(CarVPN.address):8080", at: 0)
     return result
 }
