@@ -422,7 +422,7 @@ async function poll(){
     if(carVoice && S.spokenId!==lastSpoken) speak(S.spokenText);
     lastSpoken=S.spokenId;
   }catch(e){}
-  pollT=setTimeout(poll,S.bg?400:700);
+  pollT=setTimeout(poll,(S.bg||S.screen==='drive')?300:600);
 }
 poll();
 </script></body></html>

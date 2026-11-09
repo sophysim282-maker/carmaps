@@ -20,7 +20,7 @@ final class CarLink: ObservableObject {
 
     func start(state: @escaping () -> [String: Any]) {
         server.start()
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 8.0, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 12.0, repeats: true) { [weak self] _ in
             guard let self else { return }
             let connected = self.server.hasClients
             if connected != self.carConnected { self.carConnected = connected }
@@ -55,7 +55,7 @@ final class CarLink: ObservableObject {
         }
         blackFrames = 0
         encodeQueue.async { [server] in
-            if let jpeg = image.jpegData(compressionQuality: 0.6) { server.broadcast(jpeg) }
+            if let jpeg = image.jpegData(compressionQuality: 0.55) { server.broadcast(jpeg) }
         }
     }
 

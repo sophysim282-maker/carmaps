@@ -47,6 +47,10 @@ final class MapController: NSObject, ObservableObject, GMSMapViewDelegate {
     private var traffic: Bool?
     private var hadFix = false
     private var iconStyle = ""
+    private var lastCar: CLLocationCoordinate2D?
+    private var lastBearing: Double = -1
+    private var lastFix = Date()
+    private var lastCamKey = ""
 
     private var wasGuiding = false
 
@@ -155,9 +159,11 @@ final class MapController: NSObject, ObservableObject, GMSMapViewDelegate {
             }
             l.map.isMyLocationEnabled = !nav.guiding
             if nav.guiding, let c = nav.carCoordinate {
-                l.arrow.position = c
-                l.arrow.rotation = nav.carBearing
-                if l.arrow.map == nil { l.arrow.map = l.map }
+                if l.arrow.map == nil {
+                    l.arrow.position = c
+                    l.arrow.rotation = nav.carBearing
+                    l.arrow.map = l.map
+                }
             } else {
                 l.arrow.map = nil
             }
@@ -182,13 +188,33 @@ final class MapController: NSObject, ObservableObject, GMSMapViewDelegate {
             phoneMap.camera = GMSCameraPosition(target: loc.coordinate, zoom: 16)
         }
         if nav.guiding, let c = nav.carCoordinate {
+            // Only move when the car (or a camera setting) really changed, and glide smoothly
+            // over the time between GPS fixes so nothing jumps.
+            let camKey = "\(follow)|\(carFollow)|\(headingUp)|\(carZoom)"
+            let moved = lastCar.map { $0.latitude != c.latitude || $0.longitude != c.longitude } ?? true
+            guard moved || lastBearing != nav.carBearing || camKey != lastCamKey else { return }
+            let dur = min(1.2, max(0.25, Date().timeIntervalSince(lastFix)))
+            lastFix = Date()
+            lastCar = c
+            lastBearing = nav.carBearing
+            lastCamKey = camKey
             let bearing = headingUp ? nav.carBearing : 0
+            CATransaction.begin()
+            CATransaction.setAnimationDuration(dur)
+            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .linear))
+            for l in layers {
+                l.arrow.position = c
+                l.arrow.rotation = nav.carBearing
+            }
             if follow {
                 phoneMap.animate(to: GMSCameraPosition(target: c, zoom: 17, bearing: bearing, viewingAngle: headingUp ? 65 : 0))
             }
             if carFollow {
                 carMap.animate(to: GMSCameraPosition(target: c, zoom: carZoom, bearing: bearing, viewingAngle: headingUp ? 65 : 0))
             }
+            CATransaction.commit()
+        } else {
+            lastCar = nil
         }
     }
 

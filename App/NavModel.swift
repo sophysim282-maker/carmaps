@@ -77,6 +77,8 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let speech = AVSpeechSynthesizer()
     private var saidFar = false
     private var saidNear = false
+    private var saidMid = false
+    private var offRoute = 0
     private var lastReroute = Date.distantPast
     private var routing = false
     private var sessionToken = UUID().uuidString
@@ -423,7 +425,7 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         guard !routing else { return }
         routing = true
         lastReroute = Date()
-        if guiding { status = "Re-routing…" }
+        if guiding && offRoute > 0 { status = "Re-routing…" }
         let fields = "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.routeLabels," +
             "routes.legs.steps.distanceMeters,routes.legs.steps.endLocation,routes.legs.steps.navigationInstruction"
         let wantMode = mode
@@ -528,6 +530,7 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
         while d < 25, stepIndex < r.steps.count - 1 {
             stepIndex += 1
             saidFar = false
+            saidMid = false
             saidNear = false
             d = dist(stepIndex)
         }
@@ -544,19 +547,37 @@ final class NavModel: NSObject, ObservableObject, CLLocationManagerDelegate {
             return
         }
 
-        if !saidFar, d < 500, d > 200, r.steps[stepIndex].distance > 700 {
+        // Voice: earlier when driving fast (about 7 seconds before the turn).
+        let speed = max(0, loc.speed)
+        let nearD = max(50, min(160, speed * 7))
+        if !saidFar, d < 600, d > 350, r.steps[stepIndex].distance > 800 {
             saidFar = true
             say(settings.language == "en" ? "In \(Self.distanceText(d)), \(nextInstruction)" : nextInstruction)
         }
-        if !saidNear, d < 80 {
+        if !saidMid, d < 300, d > nearD + 80, r.steps[stepIndex].distance > 400 {
+            saidMid = true
+            saidFar = true
+            say(settings.language == "en" ? "In \(Self.distanceText(d)), \(nextInstruction)" : nextInstruction)
+        }
+        if !saidNear, d < nearD {
             saidNear = true
+            saidMid = true
             saidFar = true
             say(nextInstruction)
         }
 
-        if Date().timeIntervalSince(lastReroute) > 10,
-           !GMSGeometryIsLocationOnPathTolerance(loc.coordinate, r.path, true, 50) {
+        // Off the route for 2 GPS fixes in a row → new route quickly.
+        let accuracy = max(20, min(60, loc.horizontalAccuracy))
+        if GMSGeometryIsLocationOnPathTolerance(loc.coordinate, r.path, true, accuracy + 15) {
+            offRoute = 0
+        } else {
+            offRoute += 1
+        }
+        if offRoute >= 2, Date().timeIntervalSince(lastReroute) > 5 {
             fetchRoutes()
+            offRoute = 0
+        } else if Date().timeIntervalSince(lastReroute) > 300 {
+            fetchRoutes()   // refresh traffic and arrival time every 5 minutes
         }
     }
 
