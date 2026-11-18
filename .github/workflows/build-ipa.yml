@@ -41,6 +41,11 @@ jobs:
           ldid -SCarVideo/CarVideo.entitlements Payload/CarVideo.app/CarVideo
           zip -qr output/CarVideo.ipa Payload
 
+      - name: Package ready-to-open Xcode project
+        run: |
+          mkdir -p output
+          zip -qr output/CarVideo-Xcode.zip CarVideo CarVideo.xcodeproj README.md
+
       - uses: actions/upload-artifact@v4
         with:
           name: CarVideo-ipa
