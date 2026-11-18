@@ -1,6 +1,8 @@
 import SwiftUI
 import AVKit
 import UniformTypeIdentifiers
+import PhotosUI
+import CoreTransferable
 
 /// iPhone screen with two tabs: your own MP4s, and YouTube.
 struct ContentView: View {
@@ -19,7 +21,10 @@ struct ContentView: View {
 struct MyVideosView: View {
     @ObservedObject private var library = VideoLibrary.shared
     @ObservedObject private var manager = VideoPlayerManager.shared
-    @State private var showImporter = false
+    @State private var showFilePicker = false
+    @State private var showPhotoPicker = false
+    @State private var photoItems: [PhotosPickerItem] = []
+    @State private var isImporting = false
     @State private var errorText: String?
 
     var body: some View {
@@ -49,7 +54,7 @@ struct MyVideosView: View {
                     if library.videos.isEmpty {
                         ContentUnavailableView("No videos yet",
                                                systemImage: "film",
-                                               description: Text("Tap + to add MP4 files from the Files app."))
+                                               description: Text("Tap + to add videos from Photos or Files."))
                     }
                 }
             }
@@ -59,20 +64,57 @@ struct MyVideosView: View {
                     AirPlayButton().frame(width: 32, height: 32)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showImporter = true } label: { Image(systemName: "plus") }
+                    Menu {
+                        Button { showPhotoPicker = true } label: {
+                            Label("From Photos", systemImage: "photo.on.rectangle")
+                        }
+                        Button { showFilePicker = true } label: {
+                            Label("From Files", systemImage: "folder")
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                    }
                 }
             }
-            .fileImporter(isPresented: $showImporter,
-                          allowedContentTypes: [.movie],
-                          allowsMultipleSelection: true) { result in
-                switch result {
-                case .success(let urls):
+            .overlay {
+                if isImporting {
+                    ProgressView("Adding video…")
+                        .padding()
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                }
+            }
+            // Files app: the system copies the file for us (asCopy), so no permission problems.
+            .sheet(isPresented: $showFilePicker) {
+                DocumentPicker { urls in
                     for url in urls {
                         do { try library.importVideo(from: url) }
                         catch { errorText = "Couldn't add \(url.lastPathComponent): \(error.localizedDescription)" }
                     }
-                case .failure(let error):
-                    errorText = error.localizedDescription
+                }
+                .ignoresSafeArea()
+            }
+            // Photos app videos.
+            .photosPicker(isPresented: $showPhotoPicker,
+                          selection: $photoItems,
+                          matching: .videos)
+            .onChange(of: photoItems) { _, items in
+                guard !items.isEmpty else { return }
+                isImporting = true
+                Task {
+                    for item in items {
+                        do {
+                            if let movie = try await item.loadTransferable(type: PickedMovie.self) {
+                                try library.importVideo(from: movie.url)
+                                try? FileManager.default.removeItem(at: movie.url)
+                            } else {
+                                errorText = "Couldn't read that video."
+                            }
+                        } catch {
+                            errorText = "Couldn't add video: \(error.localizedDescription)"
+                        }
+                    }
+                    photoItems = []
+                    isImporting = false
                 }
             }
             .alert("Problem", isPresented: Binding(get: { errorText != nil },
